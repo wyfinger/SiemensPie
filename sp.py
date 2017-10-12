@@ -24,8 +24,6 @@ xmlfile  = ""
 convert_to_primary = True # преобразование диапазонов или значений во вторичные величины
                           # если сделать True - скрипт спросит Ктт и Ктн
 
-
-
 global group_has_elec_values   # признак того, что среди группы параметров есть хотябы одна электрическая величина
 group_has_elec_values = False  # чтобы добавить подпись (первичные/вторичные величины) в заголовок таблицы
 
@@ -76,7 +74,6 @@ if (xmlfile == "") | (xriofile == ""):
 print("XRio File: " + xriofile)
 print("XML File: " + xmlfile)
 
-
 # создаем файл excel
 excel = win32.gencache.EnsureDispatch("Excel.Application")
 excel.Visible = True
@@ -89,9 +86,9 @@ sheet = wb.Worksheets.Add()
 xriod = etree.parse(xriofile)
 xmld = ET.parse(xmlfile)
 
-if(convert_to_primary==True):
-    ktt = float(input("Укажите Ктт: "))
-    ktn = float(input("Укажите Ктн: "))
+# ktt и ktn попытаемя автоматически определить в PrintSpec()
+ktt = 1
+ktn = 1
 
 # общие переменные
 currow = 1
@@ -493,9 +490,12 @@ def ProcessFunctionGroup(FunctionGroup):
 def PrintSpec():
 
     global currow
+    global ktt
+    global ktn
+
     # MLFBDIGSI
     sheet.Range("A" + str(currow) + ":H" + str(currow)).Merge()
-    MLFBDIGSI = xmld.find('General/GeneralData[@Name="MLFBDIGSI"]')
+    MLFBDIGSI = xmld.find('.//General/GeneralData[@Name="MLFBDIGSI"]')
     MLFBDIGSI = MLFBDIGSI.attrib.get('ID')
     sheet.Cells(currow, 1).Value = MLFBDIGSI
     sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
@@ -503,7 +503,7 @@ def PrintSpec():
 
     # Version
     sheet.Range("A" + str(currow) + ":H" + str(currow)).Merge()
-    Version = xmld.find('General/GeneralData[@Name="Version"]')
+    Version = xmld.find('.//General/GeneralData[@Name="Version"]')
     Version = Version.attrib.get('ID')
     sheet.Cells(currow, 1).Value = Version
     sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
@@ -511,11 +511,29 @@ def PrintSpec():
 
     # Topology
     sheet.Range("A" + str(currow) + ":H" + str(currow)).Merge()
-    Topology = xmld.find('General/GeneralData[@Name="Topology"]')
+    Topology = xmld.find('.//General/GeneralData[@Name="Topology"]')
     Topology = Topology.attrib.get('ID')
     sheet.Cells(currow, 1).Value = Topology
     sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
     currow = currow + 1
+
+    if ((MLFBDIGSI[0:6]=="7SA522") or (MLFBDIGSI[0:6]=="7SD522")):
+        P0203 = float(xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0203"]/Value').text) # Первичное номинальное напряжение
+        P0204 = float(xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0204"]/Value').text) # Вторичное номинальное напряжение
+        ktn = round((P0203 * 1000) / P0204)
+        P0205 = float(xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0205"]/Value').text)  # Первичный номинальный ток ТТ
+        P0206 = xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0206"]/Value').text  # Вторичный номинальный ток ТТ
+        P0206 = xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0206"]/Comment[@Number="'+P0206+'"]')
+        P0206 = int(P0206.attrib['Name'][0:1])
+        ktt = round(P0205 / P0206)
+        print("Ktt= " + str(ktt))
+        print("Ktn= " + str(ktn))
+    #elif (MLFBDIGSI[0:6]=="7SD522"):
+        #
+    else:
+        if (convert_to_primary == True):
+            ktt = float(input("Укажите Ктт: "))
+            ktn = float(input("Укажите Ктн: "))
 
     pass
 
