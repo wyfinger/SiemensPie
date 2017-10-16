@@ -93,6 +93,8 @@ ktn = 1
 # общие переменные
 currow = 1
 
+# код устройства
+MLFBDIGSI = ""
 
 # вставка шапки и оформление столбцов
 def PageSetup():
@@ -234,6 +236,23 @@ def ExtractParameterName(Address, XRio):
         ParameterName=str(ParameterName[0])
     else:
         ParameterName= ""
+
+    # корректировка наименований некоторых параметров
+    if ((MLFBDIGSI[0:6]=="7SA522")):
+        ParameterName = {
+            '1242' : 'φ нагр (ф-з)',
+            '1244' : 'φ нагр (ф-ф)',
+            '1307' : 'Угол α Z1',
+            '2941' : 'φА',
+            '2942' : 'φВ',
+            '3162A': 'Направл Уг α',
+            '3163A': 'Направл Уг β'
+        }.get(Address, ParameterName)
+    elif (MLFBDIGSI[0:6]=="7SD522"):
+        ParameterName = {
+            '1542': 'φ нагр (ф-з)',
+            '1544': 'φ нагр (ф-ф)'
+        }.get(Address, ParameterName)
 
     return ParameterName
 
@@ -492,6 +511,7 @@ def PrintSpec():
     global currow
     global ktt
     global ktn
+    global MLFBDIGSI
 
     # MLFBDIGSI
     sheet.Range("A" + str(currow) + ":H" + str(currow)).Merge()
@@ -517,7 +537,7 @@ def PrintSpec():
     sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
     currow = currow + 1
 
-    if ((MLFBDIGSI[0:6]=="7SA522") or (MLFBDIGSI[0:6]=="7SD522")):
+    if ((MLFBDIGSI[0:6]=="7SA522") or (MLFBDIGSI[0:6]=="7SD522") or (MLFBDIGSI[0:6]=="6MD664")):
         P0203 = float(xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0203"]/Value').text) # Первичное номинальное напряжение
         P0204 = float(xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0204"]/Value').text) # Вторичное номинальное напряжение
         ktn = round((P0203 * 1000) / P0204)
