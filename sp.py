@@ -96,6 +96,9 @@ currow = 1
 # код устройства
 MLFBDIGSI = ""
 
+# словарь для временного хранения уставок, которые необходимо переместить
+stash = []
+
 # вставка шапки и оформление столбцов
 def PageSetup():
     # поля
@@ -399,53 +402,37 @@ def ExtractParameterRange(Parameter):
 
     return [RangeText, Precision]
 
-# обработка одного параметра
-def ProcessParameter(Parameter):
-
-    ParameterAddress = Parameter.attrib['DAdr']
-
-    print(ParameterAddress)
-
-    ParameterName = ExtractParameterName(ParameterAddress, xriod)
-    ParameterDescription = Parameter.attrib['Name']
-
-    ParameterType = Parameter.attrib['Type']
-
-    Range = ExtractParameterRange(Parameter)
-    ParameterRange = Range[0]
-    ParameterValues = ExtractParameterValues(Parameter)
+# вывод данных параметра в Excel
+def PrintParameterData(ParameterData):
 
     global currow
-    sheet.Cells(currow,1).Value = ParameterAddress
-    sheet.Cells(currow,2).Value = ParameterName
-    sheet.Cells(currow,3).Value = ParameterRange
+    sheet.Cells(currow, 1).Value = ParameterData['Address']
+    sheet.Cells(currow, 2).Value = ParameterData['Name']
+    sheet.Cells(currow, 3).Value = ParameterData['Range']
 
-    #sheet.Cells(currow,4).Value = ParameterValues[0]
-    #sheet.Cells(currow,5).Value = ParameterValues[1]
-    #sheet.Cells(currow,6).Value = ParameterValues[2]
-    #sheet.Cells(currow,7).Value = ParameterValues[3]
+    ParameterValues = ParameterData['Values']
 
     # объединяем уставки, одинаковые в соседних группах
-    if (ParameterValues[0]==ParameterValues[1]==ParameterValues[2]==ParameterValues[3]):
-            sheet.Range("D"+str(currow)+":G"+str(currow)).Merge()
-            sheet.Cells(currow,4).Value = ParameterValues[0]
-    elif (ParameterValues[0]==ParameterValues[1]==ParameterValues[2]):
-            sheet.Range("D"+str(currow)+":F"+str(currow)).Merge()
-            sheet.Cells(currow,4).Value = ParameterValues[0]
-            sheet.Cells(currow,7).Value = ParameterValues[3]
-    elif (ParameterValues[0]==ParameterValues[1]):
+    if (ParameterValues[0] == ParameterValues[1] == ParameterValues[2] == ParameterValues[3]):
+        sheet.Range("D" + str(currow) + ":G" + str(currow)).Merge()
+        sheet.Cells(currow, 4).Value = ParameterValues[0]
+    elif (ParameterValues[0] == ParameterValues[1] == ParameterValues[2]):
+        sheet.Range("D" + str(currow) + ":F" + str(currow)).Merge()
+        sheet.Cells(currow, 4).Value = ParameterValues[0]
+        sheet.Cells(currow, 7).Value = ParameterValues[3]
+    elif (ParameterValues[0] == ParameterValues[1]):
         sheet.Range("D" + str(currow) + ":E" + str(currow)).Merge()
         sheet.Cells(currow, 4).Value = ParameterValues[0]
-        if (ParameterValues[2]==ParameterValues[3]):
+        if (ParameterValues[2] == ParameterValues[3]):
             sheet.Range("F" + str(currow) + ":G" + str(currow)).Merge()
             sheet.Cells(currow, 6).Value = ParameterValues[2]
         else:
-            sheet.Cells(currow,6).Value = ParameterValues[2]
-            sheet.Cells(currow,7).Value = ParameterValues[3]
-    elif (ParameterValues[1]==ParameterValues[2]==ParameterValues[3]):
-        sheet.Cells(currow,4).Value = ParameterValues[0]
+            sheet.Cells(currow, 6).Value = ParameterValues[2]
+            sheet.Cells(currow, 7).Value = ParameterValues[3]
+    elif (ParameterValues[1] == ParameterValues[2] == ParameterValues[3]):
+        sheet.Cells(currow, 4).Value = ParameterValues[0]
         sheet.Range("E" + str(currow) + ":G" + str(currow)).Merge()
-        sheet.Cells(currow,5).Value = ParameterValues[1]
+        sheet.Cells(currow, 5).Value = ParameterValues[1]
     elif (ParameterValues[2] == ParameterValues[3]):
         sheet.Cells(currow, 4).Value = ParameterValues[0]
         sheet.Cells(currow, 5).Value = ParameterValues[1]
@@ -462,9 +449,91 @@ def ProcessParameter(Parameter):
         sheet.Cells(currow, 6).Value = ParameterValues[2]
         sheet.Cells(currow, 7).Value = ParameterValues[3]
 
-    sheet.Cells(currow,8).Value = ParameterDescription
+    sheet.Cells(currow, 8).Value = ParameterData['Description']
+    currow = currow + 1
 
-    currow = currow +1
+    pass
+
+# сохранение параметров, которые нужно переместить
+def StashParametersPush(ParameterData):
+
+    # что и куда переместить
+    SpecificParameters = {
+        '7SA522': {
+            '1211': '1208', # Угол наклона харак Дист защиты -> Дистанционная защита, Общие установки / Общее
+            '1305': '1304', # Т1-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z1
+            '1306': '1305', # Т1-многофаз
+            '1355': '1354', # Т1В-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z1В
+            '1356': '1355', # Т1В-многофаз
+            '1357': '1356', # Z1В введена перед 1-ым АПВ(вн.или внеш.)
+            '1315': '1314', # Т2-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z2
+            '1316': '1315', # Т2-многофаз
+            '1325': '1324', # Т3 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z3
+            '1335': '1334', # Т4 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z4
+            '1345': '1344', # Выдержка Т5 -> Дист.защита, ступени (четырехуг.) / Ступень Z5
+            '1365': '1364'  # Т6 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z6
+        },
+        '7SD522': {
+            '1511': '1502'  # Угол наклона харак Дист защиты -> Дистанционная защита, Общие установки / Общее
+        }
+    }
+    Parameters = SpecificParameters.get(MLFBDIGSI[0:6], 0)
+    if (Parameters == 0):
+        return False
+    PopAfter = Parameters.get(ParameterData['Address'], 0)
+    if (PopAfter == 0):
+        return False
+    else:
+        stash.append({
+            'PopAfter': PopAfter,
+            'ParameterData': ParameterData
+        })
+        return True
+
+# проверка необходимости вставить данные параметра из временного хранилища
+def StashParametersPop(ParameterAddress):
+
+    # просматриваем список сохраненных параметров
+    for i in range(len(stash)):
+        if (stash[i]['PopAfter'] == ParameterAddress):
+            ParameterData = stash[i]['ParameterData']
+            stash.pop(i)
+            PrintParameterData(ParameterData)
+            return ParameterData['Address']
+
+    return False
+
+# обработка одного параметра
+def ProcessParameter(Parameter):
+
+    ParameterAddress = Parameter.attrib['DAdr']
+
+    print(ParameterAddress)
+
+    ParameterName = ExtractParameterName(ParameterAddress, xriod)
+    ParameterDescription = Parameter.attrib['Name']
+
+    ParameterType = Parameter.attrib['Type']
+
+    Range = ExtractParameterRange(Parameter)
+    ParameterRange = Range[0]
+    ParameterValues = ExtractParameterValues(Parameter)
+
+    ParameterData = {
+        'Address': ParameterAddress,
+        'Name': ParameterName,
+        'Range': ParameterRange,
+        'Values': ParameterValues,
+        'Description': ParameterDescription,
+    }
+
+    # адреса, которые нужно переместить, если параметр не был спрятан - выведем его в Excel
+    if (StashParametersPush(ParameterData) == False):
+        PrintParameterData(ParameterData)
+
+        # вставка сохраненных параметров
+        while (ParameterAddress != False):
+            ParameterAddress = StashParametersPop(ParameterAddress)
 
     pass
 
@@ -565,68 +634,3 @@ PrintSpec()
 FunctionGroups = xmld.findall('Settings/FunctionGroup')
 for FunctionGroup in FunctionGroups:
     ProcessFunctionGroup(FunctionGroup)
-
-#excel.Visible = True
-#excel.DisplayAlerts = True
-
-
-# block = root.find("CUSTOM/Block[@Id='SETTINGS']/Block[@Id='DC']")
-# PrintHeader(block.find("Description").text)
-# PrintColumnHeader()
-# parameters = block.findall("Parameter")
-# for parameter in parameters:
-#     sheet.Cells(currow,1).Value = parameter.attrib["Id"]
-#     sheet.Cells(currow,2).Value = parameter.find("ForeignId").text
-#     sheet.Cells(currow,3).Value = parameter.find("Name").text
-#     sheet.Cells(currow,4).Value = ExtractRange(parameter)
-#     sheet.Cells(currow,5).Value = ExtractValue(parameter)
-#     sheet.Range("E"+str(currow)+":H"+str(currow)).Merge()
-#     sheet.Cells(currow,5).HorizontalAlignment = win32.constants.xlCenter
-#     sheet.Cells(currow,9).Value = parameter.find("Description").text
-#     currow = currow +1
-#
-# # данные энергосистемы 1 (общие для всех групп уставок)
-# block = root.find("CUSTOM/Block[@Id='SETTINGS']/Block[@Id='FG2']")
-# PrintHeader(block.find("Description").text)
-# # пройдемся по подразделам блока Данные энергосистемы 1
-# subblocks = block.findall("Block")
-# for subblock in subblocks:
-#     PrintSubHeader(subblock.find("Description").text)
-#     PrintColumnHeader()
-#     parameters = subblock.findall("Parameter")
-#     for parameter in parameters:
-#         sheet.Cells(currow,1).Value = parameter.attrib["Id"]
-#         sheet.Cells(currow,2).Value = parameter.find("ForeignId").text
-#         sheet.Cells(currow,3).Value = parameter.find("Name").text
-#         sheet.Cells(currow,4).Value = ExtractRange(parameter)
-#         sheet.Cells(currow,5).Value = ExtractValue(parameter)
-#         sheet.Range("E"+str(currow)+":H"+str(currow)).Merge()
-#         sheet.Cells(currow,5).HorizontalAlignment = win32.constants.xlCenter
-#         sheet.Cells(currow,9).Value = parameter.find("Description").text
-#         currow = currow +1
-#
-# # Регистрация аварийных режимов
-# block = root.find("CUSTOM/Block[@Id='SETTINGS']/Block[@Id='FG4']")
-# PrintHeader(block.find("Description").text)
-# # пройдемся по подразделам блока Данные энергосистемы 1
-# subblocks = block.findall("Block")
-# for subblock in subblocks:
-#     #PrintSubHeader(subblock.find("Description").text)
-#     #PrintColumnHeader()
-#     parameters = subblock.findall("Parameter")
-#     for parameter in parameters:
-#         sheet.Cells(currow,1).Value = parameter.attrib["Id"]
-#         sheet.Cells(currow,2).Value = parameter.find("ForeignId").text
-#         sheet.Cells(currow,3).Value = parameter.find("Name").text
-#         sheet.Cells(currow,4).Value = ExtractRange(parameter)
-#         sheet.Cells(currow,5).Value = ExtractValue(parameter)
-#         sheet.Range("E"+str(currow)+":H"+str(currow)).Merge()
-#         sheet.Cells(currow,5).HorizontalAlignment = win32.constants.xlCenter
-#         sheet.Cells(currow,9).Value = parameter.find("Description").text
-#         currow = currow +1
-#
-# excel.DisplayAlerts = True
-
-#wb.SaveAs(xlsxfile)
-#excel.Application.Quit()
-
