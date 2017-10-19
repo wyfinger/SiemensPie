@@ -12,6 +12,7 @@ from lxml import etree
 import sys
 import argparse
 import os
+
 from win32com.client import gencache
 if gencache.is_readonly:
     gencache.is_readonly = False
@@ -124,6 +125,17 @@ def PageSetup():
     sheet.Columns("D:G").ColumnWidth = 8.3    # значения по группам уставок
     sheet.Columns("D:G").HorizontalAlignment = win32.constants.xlCenter
     sheet.Columns("H:H").ColumnWidth = 41.6   # описание
+
+    # поля страницы
+    sheet.PageSetup.LeftMargin = excel.InchesToPoints(0.433070866141732)
+    sheet.PageSetup.RightMargin = excel.InchesToPoints(0.433070866141732)
+    sheet.PageSetup.TopMargin = excel.InchesToPoints(0.393700787401575)
+    sheet.PageSetup.BottomMargin = excel.InchesToPoints(0.590551181102362)
+    sheet.PageSetup.HeaderMargin = excel.InchesToPoints(0.196850393700787)
+    sheet.PageSetup.FooterMargin = excel.InchesToPoints(0.118110236220472)
+
+    # колонтитул - имя файла и номер страницы
+    sheet.PageSetup.RightFooter = "&F\n&P"
 
     return True
 
@@ -251,7 +263,7 @@ def ExtractParameterName(Address, XRio):
             '3162A': 'Направл Уг α',
             '3163A': 'Направл Уг β'
         }.get(Address, ParameterName)
-    elif (MLFBDIGSI[0:6]=="7SD522"):
+    elif (MLFBDIGSI[0:5]=="7SD52"):
         ParameterName = {
             '1542': 'φ нагр (ф-з)',
             '1544': 'φ нагр (ф-ф)',
@@ -493,6 +505,20 @@ def StashParametersPush(ParameterData):
             '1635': '1634',  # Т4 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z4
             '1645': '1644',  # Выдержка Т5 -> Дист.защита, ступени (четырехуг.) / Ступень Z5
             '1665': '1664'   # Т6 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z6
+        },
+        '7SD523': {
+            '1511': '1502',  # Угол наклона харак Дист защиты -> Дистанционная защита, Общие установки / Общее
+            '1605': '1604',  # Т1-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z1
+            '1606': '1605',  # Т1-многофаз
+            '1655': '1654',  # Т1В-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z1В
+            '1656': '1655',  # Т1В-многофаз
+            '1657': '1656',  # Z1В введена перед 1-ым АПВ(вн.или внеш.)
+            '1615': '1614',  # Т2-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z2
+            '1616': '1615',  # Т2-многофаз
+            '1625': '1624',  # Т3 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z3
+            '1635': '1634',  # Т4 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z4
+            '1645': '1644',  # Выдержка Т5 -> Дист.защита, ступени (четырехуг.) / Ступень Z5
+            '1665': '1664'   # Т6 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z6
         }
     }
     Parameters = SpecificParameters.get(MLFBDIGSI[0:6], 0)
@@ -623,7 +649,7 @@ def PrintSpec():
     sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
     currow = currow + 1
 
-    if ((MLFBDIGSI[0:6]=="7SA522") or (MLFBDIGSI[0:6]=="7SD522") or (MLFBDIGSI[0:6]=="6MD664")):
+    if ((MLFBDIGSI[0:6]=="7SA522") or (MLFBDIGSI[0:5]=="7SD52") or (MLFBDIGSI[0:6]=="6MD664")):
         P0203 = float(xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0203"]/Value').text) # Первичное номинальное напряжение
         P0204 = float(xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0204"]/Value').text) # Вторичное номинальное напряжение
         ktn = round((P0203 * 1000) / P0204)
@@ -651,3 +677,11 @@ PrintSpec()
 FunctionGroups = xmld.findall('Settings/FunctionGroup')
 for FunctionGroup in FunctionGroups:
     ProcessFunctionGroup(FunctionGroup)
+
+# настройка печати
+excel.PrintCommunication = False
+sheet.PageSetup.PrintArea = "$A$1:$H$" + str(currow)
+sheet.PageSetup.Zoom = False
+sheet.PageSetup.FitToPagesWide = 1
+sheet.PageSetup.FitToPagesTall = 0
+excel.PrintCommunication = True
