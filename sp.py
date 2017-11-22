@@ -1,147 +1,285 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
+import argparse
+import codecs
+import json
+import os
+import re
+import sys
+
+import binascii
+import lxml
+from lxml import etree as lxml
+import win32com.client as win32
+
 __author__ = 'prim_miv'
 
+xriofile = ""
+xmlfile = ""
+primary = False
+config = {}
+
+xrio_tree = None
+xml_tree = None
+ktt = 1
+ktn = 1
+excel = None
+book = None
+sheet = None
+currow = 1
+group_has_elec_values = False
+group_has_group_values = False
+stash = []
+last_title = ""
+
+
 #TODO: уставка 7137 в 7SJ не выводится в Excel, хотя в конфиге, если посмотреть в Digsi, есть.
-
-import re
-from string import ascii_lowercase
-import xml.etree.ElementTree as ET
-import win32com.client as win32
-from lxml import etree
-import sys
-import argparse
-import os
-
 from win32com.client import gencache
 if gencache.is_readonly:
     gencache.is_readonly = False
     gencache.Rebuild() #create gen_py folder if needed
 
-xriofile = ""
-xmlfile  = ""
 
-# параметры преобразования
-convert_to_primary = True # преобразование диапазонов или значений во вторичные величины
-                          # если сделать True - скрипт спросит Ктт и Ктн
+# print small help tip to console, for use in error in parameters
+def PrintSmallHelp():
 
-global group_has_elec_values   # признак того, что среди группы параметров есть хотябы одна электрическая величина
-group_has_elec_values = False  # чтобы добавить подпись (первичные/вторичные величины) в заголовок таблицы
-
-global group_has_group_values   # признак того, что среди группы параметров есть хотябы одна имеющая группы уставок
-group_has_group_values = False  # чтобы добавить подпись строку с наименованиями групп в шапку таблицы
-
-# анализ параметров командной строки
-parser = argparse.ArgumentParser()
-parser.add_argument('-p', '--primary', nargs='?', default='false', help='Конвертировать значение по вторичные')
-parser.add_argument('file1', nargs='?')
-parser.add_argument('file2', nargs='?')
-namespace = parser.parse_args()
-
-if (namespace.primary != None):
-    if (namespace.primary.lower() == 'true'):
-        convert_to_primary = True
-
-# ищем файлы в коммандной строки
-if (namespace.file1 != None):
-    file1name, file1extension = os.path.splitext(namespace.file1)
-    if (file1extension.lower() == '.xrio'):
-        xriofile = namespace.file1
-    if (file1extension.lower() == '.xml'):
-        xmlfile = namespace.file1
-if (namespace.file2 != None):
-    file2name, file2extension = os.path.splitext(namespace.file2)
-    if (file2extension.lower() == '.xrio'):
-        xriofile = namespace.file2
-    if (file2extension.lower() == '.xml'):
-        xmlfile = namespace.file2
-
-if (xriofile == "") & (xmlfile != ""):
-    xriofile = os.path.splitext(xmlfile)[0]+'.xrio'
-    if (os.path.isfile(xriofile) == False):
-        xriofile = ""
-if (xriofile != "") & (xmlfile == ""):
-    xmlfile = os.path.splitext(xriofile)[0]+'.xml'
-    if (os.path.isfile(xmlfile) == False):
-        xmlfile = ""
-
-if (xmlfile == "") | (xriofile == ""):
-    print("Error. XML or XRio file is not exists.")
-    print("Use: sp.exe [-p] [xml or xrio file] [xml or xrio file]")
+    print("Use: sp.exe [-p] [-c] [xml or xrio file] [xml or xrio file]")
     print("  -p  - convert electrical values to primary")
+    print("  -c  - path to config file (Json)")
     print("  set one (xml or xrio) file if they have the same name")
-    sys.exit()
 
-print("XRio File: " + xriofile)
-print("XML File: " + xmlfile)
+    return
 
-# создаем файл excel
-excel = win32.gencache.EnsureDispatch("Excel.Application")
-excel.Visible = True
-#excel.DisplayAlerts = False
 
-wb = excel.Workbooks.Add()
-sheet = wb.Worksheets.Add()
+'''
+ read config Json
+'''
+def ReadConfig(config_path):
 
-# читаем xrio и xml
-xriod = etree.parse(xriofile)
-xmld = ET.parse(xmlfile)
+    try:
+        with codecs.open(config_path, 'r', 'utf-8') as param_file:
+            return json.load(param_file)
+    except:
+        print("Error at read config file.\n")
+        PrintSmallHelp()
+        sys.exit()
 
-# ktt и ktn попытаемя автоматически определить в PrintSpec()
-ktt = 1
-ktn = 1
+    return
 
-# общие переменные
-currow = 1
 
-# код устройства
-MLFBDIGSI = ""
+'''
+ command line parameter analyses
+'''
+def ProcessCommandLine():
 
-# словарь для временного хранения уставок, которые необходимо переместить
-stash = []
+    global xriofile, xmlfile, primary, config
 
-# вставка шапки и оформление столбцов
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', '--primary', nargs='?', default='false', help='Convert values to a prymary')
+    parser.add_argument('-c', '--config', nargs='?', default=os.path.dirname(sys.argv[0])+'/config.json', help='Json file with parameters')
+    parser.add_argument('file1', nargs='?')
+    parser.add_argument('file2', nargs='?')
+    namespace = parser.parse_args()
+
+    # convert params to primary? in's stored in secondary
+    primary = (namespace.primary != 'false')
+
+    # find .xml and .xrio files
+    if (namespace.file1 != None):
+        file1name, file1extension = os.path.splitext(namespace.file1)
+        if (file1extension.lower() == '.xrio'):
+            xriofile = namespace.file1
+        if (file1extension.lower() == '.xml'):
+            xmlfile = namespace.file1
+    if (namespace.file2 != None):
+        file2name, file2extension = os.path.splitext(namespace.file2)
+        if (file2extension.lower() == '.xrio'):
+            xriofile = namespace.file2
+        if (file2extension.lower() == '.xml'):
+            xmlfile = namespace.file2
+
+    if (xriofile == "") & (xmlfile != ""):
+        xriofile = os.path.splitext(xmlfile)[0] + '.xrio'
+        if (os.path.isfile(xriofile) == False):
+            xriofile = ""
+    if (xriofile != "") & (xmlfile == ""):
+        xmlfile = os.path.splitext(xriofile)[0] + '.xml'
+        if (os.path.isfile(xmlfile) == False):
+            xmlfile = ""
+
+    config_path = 'config.json'
+    if (namespace.config != None):
+        config_path = namespace.config
+    config = ReadConfig(config_path)
+
+    if (xmlfile == "") | (xriofile == ""):
+        print("Error. XML or XRio file is not exists.")
+        PrintSmallHelp()
+        sys.exit()
+
+    print("XML: " + xmlfile)
+    print("XRio: " + xriofile)
+
+    return
+
+
+'''
+ calculate crc32 of this file
+'''
+def SelfCRC32():
+    buf = open(sys.argv[0],'rb').read()
+    buf = (binascii.crc32(buf) & 0xFFFFFFFF)
+    return "%08X" % buf
+
+'''
+ start of data process
+'''
+def ProcessAll():
+
+    global xrio_tree, xml_tree
+
+    # load xml files
+    try:
+        xrio_tree = lxml.parse(xriofile)
+        xml_tree = lxml.parse(xmlfile)
+    except:
+        print("Error at read XML and XRio files.\n")
+        PrintSmallHelp()
+        sys.exit()
+
+    global excel, book, sheet
+
+    try:
+        #excel = win32.gencache.EnsureDispatch("Excel.Application")
+        excel = win32.DispatchEx('Excel.Application')
+        excel.Visible = True
+        book = excel.Workbooks.Add()
+        sheet = book.Worksheets.Add()
+    except:
+        print("Error at create Exel file to output.\n")
+        sys.exit()
+
+    PageSetup()
+
+    global config, ktt, ktn, currow
+
+    # select config section by MLFB code
+    MLFBDIGSI = xml_tree.xpath('.//General/GeneralData[@Name="MLFBDIGSI"]/@ID')[0]
+    for k in config.keys():
+        if (MLFBDIGSI[0:len(k)]==k):
+            config = config[k]
+            break
+
+    # prepare ktt and ktn values, only if primary = true
+    if (primary):
+        v_primary = xml_tree.xpath(config['voltage_primary'])[0]
+        v_primary = int(re.sub(r"[^\d+]", "", v_primary, 0, 0))*1000 # voltage in kilovolts
+        v_second = xml_tree.xpath(config['voltage_second'])[0]
+        v_second = int(re.sub(r"[^\d+]", "", v_second, 0, 0))
+        ktn = v_primary / v_second
+        c_primary = xml_tree.xpath(config['current_primary'])[0]
+        c_primary = int(re.sub(r"[^\d+]", "", c_primary, 0, 0))
+        c_second = xml_tree.xpath(config['current_second'])[0]
+        c_second = int(re.sub(r"[^\d+]", "", c_second, 0, 0))
+        ktt = c_primary / c_second
+
+    # paste overview info about terminal
+    # MLFB code
+    sheet.Range("A" + str(currow) + ":B" + str(currow)).Merge()
+    sheet.Range("C" + str(currow) + ":H" + str(currow)).Merge()
+    sheet.Cells(currow, 1).Value = "MLFB Код"
+    sheet.Cells(currow, 3).Value = MLFBDIGSI
+    sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
+    currow = currow + 1
+    # Version
+    sheet.Range("A" + str(currow) + ":B" + str(currow)).Merge()
+    sheet.Range("C" + str(currow) + ":H" + str(currow)).Merge()
+    Version = xml_tree.xpath('.//General/GeneralData[@Name="Version"]/@ID')[0]
+    sheet.Cells(currow, 1).Value = "Версия ПО терминала"
+    sheet.Cells(currow, 3).Value = Version
+    sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
+    currow = currow + 1
+    # Topology
+    sheet.Range("A" + str(currow) + ":B" + str(currow)).Merge()
+    sheet.Range("C" + str(currow) + ":H" + str(currow)).Merge()
+    Topology = xml_tree.xpath('.//General/GeneralData[@Name="Topology"]/@ID')[0]
+    sheet.Cells(currow, 1).Value = "Топология"
+    sheet.Cells(currow, 3).Value = Topology
+    sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
+    currow = currow + 1
+    # Self version (crc32)
+    sheet.Range("A" + str(currow) + ":B" + str(currow)).Merge()
+    sheet.Range("C" + str(currow) + ":H" + str(currow)).Merge()
+    Topology = xml_tree.xpath('.//General/GeneralData[@Name="Topology"]/@ID')[0]
+    sheet.Cells(currow, 1).Value = "Версия SiemensPie"
+    sheet.Cells(currow, 3).Value = SelfCRC32()
+    sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
+    currow = currow + 1
+
+    # main work
+    FunctionGroups = xml_tree.findall('Settings/FunctionGroup')
+    for FunctionGroup in FunctionGroups:
+        ProcessFunctionGroup(FunctionGroup)
+
+    return
+
+
+'''
+ insert header and page stylization 
+'''
 def PageSetup():
-    # поля
-    sheet.PageSetup.LeftMargin = excel.InchesToPoints(0.393700787401575)
-    sheet.PageSetup.RightMargin = excel.InchesToPoints(0.393700787401575)
-    sheet.PageSetup.TopMargin = excel.InchesToPoints(0.393700787401575)
-    sheet.PageSetup.BottomMargin = excel.InchesToPoints(0.393700787401575)
-    sheet.PageSetup.HeaderMargin = excel.InchesToPoints(0.118110236220472)
-    sheet.PageSetup.FooterMargin = excel.InchesToPoints(0.118110236220472)
-    sheet.PageSetup.FitToPagesWide = 1
-    excel.ActiveWindow.Zoom = 90
 
-    # все содержимое ячеек выравнивается по высоте посередине и текст переносится
+    # page margins
+    #sheet.PageSetup.LeftMargin = excel.InchesToPoints(0.393700787401575)
+    #sheet.PageSetup.RightMargin = excel.InchesToPoints(0.393700787401575)
+    #sheet.PageSetup.TopMargin = excel.InchesToPoints(0.393700787401575)
+    #sheet.PageSetup.BottomMargin = excel.InchesToPoints(0.393700787401575)
+    #sheet.PageSetup.HeaderMargin = excel.InchesToPoints(0.118110236220472)
+    #sheet.PageSetup.FooterMargin = excel.InchesToPoints(0.118110236220472)
+    #sheet.PageSetup.FitToPagesWide = 1
+    #excel.ActiveWindow.Zoom = 90
+
+    # text alignment
     sheet.Columns("A:H").VerticalAlignment = win32.constants.xlCenter
     sheet.Columns("A:H").WrapText = True
     sheet.Columns("A:H").NumberFormat = "@"
 
-    # ширины столбцов
-    sheet.Columns("A:A").ColumnWidth = 6      # номер уставки
+    # column width
+    sheet.Columns("A:A").ColumnWidth = 6                                # address
     sheet.Columns("A:A").HorizontalAlignment = win32.constants.xlCenter
-    sheet.Columns("B:B").ColumnWidth = 23     # наименование уставки
-    sheet.Columns("C:C").ColumnWidth = 30     # диапазон возможных значений
-    sheet.Columns("D:G").ColumnWidth = 8.3    # значения по группам уставок
+    sheet.Columns("B:B").ColumnWidth = 23                               # name
+    sheet.Columns("C:C").ColumnWidth = 30                               # range
+    sheet.Columns("D:G").ColumnWidth = 8.3                              # values in groups
     sheet.Columns("D:G").HorizontalAlignment = win32.constants.xlCenter
-    sheet.Columns("H:H").ColumnWidth = 41.6   # описание
+    sheet.Columns("H:H").ColumnWidth = 41.6                             # description
 
-    # поля страницы
+    # page margins
     sheet.PageSetup.LeftMargin = excel.InchesToPoints(0.433070866141732)
     sheet.PageSetup.RightMargin = excel.InchesToPoints(0.433070866141732)
     sheet.PageSetup.TopMargin = excel.InchesToPoints(0.393700787401575)
     sheet.PageSetup.BottomMargin = excel.InchesToPoints(0.590551181102362)
     sheet.PageSetup.HeaderMargin = excel.InchesToPoints(0.196850393700787)
     sheet.PageSetup.FooterMargin = excel.InchesToPoints(0.118110236220472)
+    sheet.PageSetup.FitToPagesWide = 1
+    sheet.PageSetup.Orientation = win32.constants.xlLandscape
+    excel.ActiveWindow.Zoom = 90
 
-    # колонтитул - имя файла и номер страницы
+    # footer
     sheet.PageSetup.RightFooter = "&F\n&P"
 
-    return True
+    return
 
-# вставить заголовок раздела
+
+'''
+ insert chapter header
+'''
 def PrintHeader(text):
-    global currow
+
+    global currow, last_title
+
+    # check text to titles_correct
+    text = config['titles_correct'].get(text, text)
+
     if (currow > 1) and (sheet.Cells(currow, 2).Text != ""):
         currow = currow +1
     sheet.Range("A"+str(currow)+":H"+str(currow)).Merge()
@@ -153,14 +291,22 @@ def PrintHeader(text):
     sheet.Cells(currow,1).Interior.ThemeColor = win32.constants.xlThemeColorDark1
     sheet.Cells(currow,1).Interior.TintAndShade = -0.149998474074526
     currow = currow +1
+    last_title = text
 
-    return True
+    return
 
-# вставить заголовок подраздела
+'''
+ insert chapter sub-header
+'''
 def PrintSubHeader(text):
 
     if text != "":
+
         global currow
+
+        # check text to titles_correct
+        text = config['titles_correct'].get(last_title+"|"+text, text)
+
         if (currow > 1) and (sheet.Cells(currow, 2).Text != ""):
             currow = currow +1
         sheet.Range("A"+str(currow)+":H"+str(currow)).Merge()
@@ -173,17 +319,19 @@ def PrintSubHeader(text):
         sheet.Cells(currow,1).Interior.TintAndShade = -0.149998474074526
         currow = currow +1
 
-    pass
+        return
 
-# вставить шапку с наименованиями столбцов
+'''
+ insert header with column titles
+'''
 def PrintColumnHeader():
 
     global currow
+
     sheet.Cells(currow,1).Value = "№\r\nАдрес"
     sheet.Cells(currow,2).Value = "Наименование уставки"
     sheet.Cells(currow,3).Value = "Диапазон уставок"
     sheet.Cells(currow,4).Value = "Заданная уставка"
-
     sheet.Cells(currow,8).Value = "Описание"
     sheet.Range("D"+str(currow)+":G"+str(currow)).Merge()
 
@@ -193,11 +341,14 @@ def PrintColumnHeader():
     sheet.Range("A" + str(currow) + ":H" + str(currow)).Interior.TintAndShade = -0.149998474074526
     sheet.Range("A" + str(currow) + ":H" + str(currow)).Font.Bold = True
     sheet.Rows(currow).RowHeight = 32
-    currow=currow + 1
+    currow = currow + 1
 
     return currow - 1
 
-# обновление заголовкой подгруппы, если в группе есть электрические параметры (первичные или вторичные)
+
+'''
+ update column header if chapter have electric paramaters 
+'''
 def UpdateColumnHeader(RowNo, addtext_range="", addtext_value=""):
 
     if addtext_range != "":
@@ -207,11 +358,16 @@ def UpdateColumnHeader(RowNo, addtext_range="", addtext_value=""):
     sheet.Rows(RowNo).RowHeight = 32
     return
 
+
+'''
+ insert group header if needed
+'''
 # добавление текста групп уставок в шапку таблицы
 def InsertGroupHeader(RowNo):
 
     global currow
     global group_has_elec_values
+
     sheet.Cells(RowNo, 1).EntireRow.Insert(1)
     sheet.Rows(RowNo).RowHeight = 15
 
@@ -243,72 +399,50 @@ def InsertGroupHeader(RowNo):
 
     return
 
-# получение короткого наименования уставки из XRio (в XML файле этих данных нет)
-def ExtractParameterName(Address, XRio):
 
-    ParameterName = XRio.xpath("//ForeignId[text()='"+Address+"']/parent::*/Name/text()")
-    if (ParameterName!=None) and (len(ParameterName) > 0):
-        ParameterName=str(ParameterName[0])
+'''
+ get parameter info from XRio file
+'''
+def ExtractParameterName(Address):
+
+    global xrio_tree
+
+    ParameterName = xrio_tree.xpath("//ForeignId[text()='"+Address+"']/parent::*/Name/text()")
+    if (ParameterName != None) and (len(ParameterName) > 0):
+        ParameterName = str(ParameterName[0])
     else:
         ParameterName= ""
 
-    # корректировка наименований некоторых параметров
-    if ((MLFBDIGSI[0:6]=="7SA522")):
-        ParameterName = {
-            '1242' : 'φ нагр (ф-з)',
-            '1244' : 'φ нагр (ф-ф)',
-            '1307' : 'Угол α Z1',
-            '2941' : 'φА',
-            '2942' : 'φВ',
-            '3162A': 'Направл Уг α',
-            '3163A': 'Направл Уг β'
-        }.get(Address, ParameterName)
-    elif (MLFBDIGSI[0:5]=="7SD52"):
-        ParameterName = {
-            '1542': 'φ нагр (ф-з)',
-            '1544': 'φ нагр (ф-ф)',
-            '1607': 'Угол α Z1',
-            '2933': 'Контр ∑I быстр',
-            '2941': 'φА',
-            '2942': 'φВ',
-            '3162A': 'Направл Уг α',
-            '3163A': 'Направл Уг β',
-            '3168': 'φ комп',
-        }.get(Address, ParameterName)
+    # correct some parameter names by config
+    return config['params_correct'].get(Address, ParameterName)
 
-    return ParameterName
 
-# получение количества знаков после запятой для величины из XRio (в XML файле этих данных нет)
-def ExtractParameterPrecision(Address, XRio):
+'''
+ get parameter precision from XRio file
+'''
+def ExtractParameterPrecision(Address):
 
-    ParameterPrecision = XRio.xpath("//ForeignId[text()='"+Address+"']/parent::*/Unit")
-    if (ParameterPrecision!=None) and (len(ParameterPrecision) > 0):
+    global xrio_tree
+
+    ParameterPrecision = xrio_tree.xpath("//ForeignId[text()='"+Address+"']/parent::*/Unit")
+    if (ParameterPrecision != None) and (len(ParameterPrecision) > 0):
         return int(ParameterPrecision[0].attrib['DecimalPlaces'])
     else:
         return 0
 
-# преобразование вторичной величины в первичную
+
+'''
+ convert electrical value to primary
+'''
 def ConvertToPrimary(Address, Value, Dimension, SecondaryPrecision):
 
-    # адреса, которые задают Ктт и Ктн не нужно ни во что переводить
-    spec_addresses = [
-        '0203',  # Первичное номинальное напряжение, 7SA
-        '0204',  # Вторичное номинальное напряжение, 7SA
-        '0205',  # Первичный номинальный ток ТТ, 7SA
-        '0206',  # Вторичный номинальный ток ТТ, 7SA
-        '0217',  # Номин. ток IЕ ТТ, первичный, 7SJ
-        '1101',  # Измерения: 100% шкалы напряжения, 7SJ
-        '1102',  # Измерения: 100% шкалы тока, 7SJ
-        '1103',  # Измерения: 100% шкалы напряжения, 7SA
-        '1104'   # Измерения: 100% шкалы тока, 7SA
-    ]
-
-    if (Address in spec_addresses):
+    # do not convert special addresses
+    if (Address in config['params_without_convert']):
         return "%g" % float(Value) + " " + Dimension
 
     global group_has_elec_values
 
-    # это число?
+    # this is a number
     rez = Value
     if re.search(r"\d+(\.|)\d*", Value, re.MULTILINE):
         Value = float(Value)
@@ -335,13 +469,15 @@ def ConvertToPrimary(Address, Value, Dimension, SecondaryPrecision):
 
     return str(rez)
 
-# получение значений параметра во всех группах уставок (массив)
+
+'''
+ extract parameter values in all groups of parameters
+'''
 def ExtractParameterValues(Parameter):
 
     ParameterAddr = Parameter.attrib['DAdr']
     ParameterType = Parameter.attrib['Type']
-    #ParameterValue = Parameter.find(r"Value[not(@SettingGroup)]").text   # эта долбанная ElementTree не поддерживает
-                                                                          # not() синтаксис XPath
+
     global group_has_group_values
 
     ParameterValue  = Parameter.find(r"Value")                 # !!!
@@ -350,7 +486,7 @@ def ExtractParameterValues(Parameter):
     ParameterValueC = Parameter.find(r"Value[@SettingGroup='C']")
     ParameterValueD = Parameter.find(r"Value[@SettingGroup='D']")
 
-    if ParameterValueA==None:
+    if ParameterValueA == None:
         ParameterValueA = ParameterValue.text
         ParameterValueB = ParameterValue.text
         ParameterValueC = ParameterValue.text
@@ -374,15 +510,15 @@ def ExtractParameterValues(Parameter):
         else:
             Dimension = ''
 
-        # преобразование едениц измерения, если нужно
-        if convert_to_primary:
-            SecondaryPrecision = ExtractParameterPrecision(ParameterAddr, xriod)
+        # convert to primary if needed
+        if primary:
+            SecondaryPrecision = ExtractParameterPrecision(ParameterAddr)
             ParameterValueA = ConvertToPrimary(ParameterAddr, ParameterValueA, Dimension, SecondaryPrecision)
             ParameterValueB = ConvertToPrimary(ParameterAddr, ParameterValueB, Dimension, SecondaryPrecision)
             ParameterValueC = ConvertToPrimary(ParameterAddr, ParameterValueC, Dimension, SecondaryPrecision)
             ParameterValueD = ConvertToPrimary(ParameterAddr, ParameterValueD, Dimension, SecondaryPrecision)
         else:
-            # если значение = oo - не отображаем еденицу измерения
+            # if value is "oo" - do not display dimension
             ParameterValueA = ParameterValueA if ParameterValueA == "oo" else ParameterValueA + " " + Dimension
             ParameterValueB = ParameterValueB if ParameterValueB == "oo" else ParameterValueB + " " + Dimension
             ParameterValueC = ParameterValueC if ParameterValueC == "oo" else ParameterValueC + " " + Dimension
@@ -390,7 +526,10 @@ def ExtractParameterValues(Parameter):
 
     return [ParameterValueA, ParameterValueB, ParameterValueC, ParameterValueD]
 
-# получение диапазона возможных значений параметра
+
+'''
+ extract parameter range
+'''
 def ExtractParameterRange(Parameter):
 
     ParameterType = Parameter.attrib['Type']
@@ -421,17 +560,21 @@ def ExtractParameterRange(Parameter):
 
     return [RangeText, Precision]
 
-# вывод данных параметра в Excel
+
+'''
+ paste parameter info to output excel sheet
+'''
 def PrintParameterData(ParameterData):
 
     global currow
+
     sheet.Cells(currow, 1).Value = ParameterData['Address']
     sheet.Cells(currow, 2).Value = ParameterData['Name']
     sheet.Cells(currow, 3).Value = ParameterData['Range']
 
     ParameterValues = ParameterData['Values']
 
-    # объединяем уставки, одинаковые в соседних группах
+    # if values are equal merge cells
     if (ParameterValues[0] == ParameterValues[1] == ParameterValues[2] == ParameterValues[3]):
         sheet.Range("D" + str(currow) + ":G" + str(currow)).Merge()
         sheet.Cells(currow, 4).Value = ParameterValues[0]
@@ -471,60 +614,22 @@ def PrintParameterData(ParameterData):
     sheet.Cells(currow, 8).Value = ParameterData['Description']
     currow = currow + 1
 
+    # insert formula with comments
+    # !!!
+    #sheet.Cells(currow, 9).FormulaR1C1 = '=IFERROR(IF(TRIM(RC[-8])<>"",INDEX(\'\\\\Prim-fs-serv\\rdu\СРЗА\\Уставки\\РАСЧЕТЫ УСТАВОК\\[!!!Siemens, общие комментарии.xlsx]7SD\'!C1:C2,MATCH(RC[-8],\'\\\\Prim-fs-serv\\rdu\\СРЗА\\Уставки\\РАСЧЕТЫ УСТАВОК\\[!!!Siemens, общие комментарии.xlsx]7SD\'!C1,0),2),""),"")'
+    #sheet.Cells(currow, 9).VerticalAlignment = -4108 # xlCenter
+
     pass
 
-# сохранение параметров, которые нужно переместить
+
+'''
+ stash parameters for rearrange, push
+'''
 def StashParametersPush(ParameterData):
 
-    # что и куда переместить
-    SpecificParameters = {
-        '7SA522': {
-            '1211': '1208', # Угол наклона харак Дист защиты -> Дистанционная защита, Общие установки / Общее
-            '1305': '1304', # Т1-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z1
-            '1306': '1305', # Т1-многофаз
-            '1355': '1354', # Т1В-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z1В
-            '1356': '1355', # Т1В-многофаз
-            '1357': '1356', # Z1В введена перед 1-ым АПВ(вн.или внеш.)
-            '1315': '1314', # Т2-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z2
-            '1316': '1315', # Т2-многофаз
-            '1325': '1324', # Т3 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z3
-            '1335': '1334', # Т4 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z4
-            '1345': '1344', # Выдержка Т5 -> Дист.защита, ступени (четырехуг.) / Ступень Z5
-            '1365': '1364'  # Т6 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z6
-        },
-        '7SD522': {
-            '1511': '1502', # Угол наклона харак Дист защиты -> Дистанционная защита, Общие установки / Общее
-            '1605': '1604',  # Т1-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z1
-            '1606': '1605',  # Т1-многофаз
-            '1655': '1654',  # Т1В-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z1В
-            '1656': '1655',  # Т1В-многофаз
-            '1657': '1656',  # Z1В введена перед 1-ым АПВ(вн.или внеш.)
-            '1615': '1614',  # Т2-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z2
-            '1616': '1615',  # Т2-многофаз
-            '1625': '1624',  # Т3 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z3
-            '1635': '1634',  # Т4 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z4
-            '1645': '1644',  # Выдержка Т5 -> Дист.защита, ступени (четырехуг.) / Ступень Z5
-            '1665': '1664'   # Т6 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z6
-        },
-        '7SD523': {
-            '1511': '1502',  # Угол наклона харак Дист защиты -> Дистанционная защита, Общие установки / Общее
-            '1605': '1604',  # Т1-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z1
-            '1606': '1605',  # Т1-многофаз
-            '1655': '1654',  # Т1В-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z1В
-            '1656': '1655',  # Т1В-многофаз
-            '1657': '1656',  # Z1В введена перед 1-ым АПВ(вн.или внеш.)
-            '1615': '1614',  # Т2-однофаз -> Дист.защита, ступени (четырехуг.) / Ступень Z2
-            '1616': '1615',  # Т2-многофаз
-            '1625': '1624',  # Т3 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z3
-            '1635': '1634',  # Т4 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z4
-            '1645': '1644',  # Выдержка Т5 -> Дист.защита, ступени (четырехуг.) / Ступень Z5
-            '1665': '1664'   # Т6 Выдержка -> Дист.защита, ступени (четырехуг.) / Ступень Z6
-        }
-    }
-    Parameters = SpecificParameters.get(MLFBDIGSI[0:6], 0)
-    if (Parameters == 0):
-        return False
-    PopAfter = Parameters.get(ParameterData['Address'], 0)
+    global stash
+
+    PopAfter = config['params_to_rearrange'].get(ParameterData['Address'], 0)
     if (PopAfter == 0):
         return False
     else:
@@ -534,10 +639,13 @@ def StashParametersPush(ParameterData):
         })
         return True
 
-# проверка необходимости вставить данные параметра из временного хранилища
+'''
+ stash parameters for rearrange, pop
+'''
 def StashParametersPop(ParameterAddress):
 
-    # просматриваем список сохраненных параметров
+    global stash
+
     for i in range(len(stash)):
         if (stash[i]['PopAfter'] == ParameterAddress):
             ParameterData = stash[i]['ParameterData']
@@ -547,14 +655,17 @@ def StashParametersPop(ParameterAddress):
 
     return False
 
-# обработка одного параметра
+
+'''
+ precess one parameter / address
+'''
 def ProcessParameter(Parameter):
 
     ParameterAddress = Parameter.attrib['DAdr']
 
     print(ParameterAddress)
 
-    ParameterName = ExtractParameterName(ParameterAddress, xriod)
+    ParameterName = ExtractParameterName(ParameterAddress)
     ParameterDescription = Parameter.attrib['Name']
 
     ParameterType = Parameter.attrib['Type']
@@ -578,110 +689,65 @@ def ProcessParameter(Parameter):
         while (ParameterAddress != False):
             ParameterAddress = StashParametersPop(ParameterAddress)
 
-    pass
+    return
 
-# обработка подгруппы параметров
+
+'''
+ process settings page
+'''
 def ProcessSettingPage(SettingPage):
+
+    global group_has_elec_values, group_has_group_values
 
     SettingPageName = SettingPage.attrib['Name']
     PrintSubHeader(SettingPageName)
     header_row = PrintColumnHeader()
     Parameters = SettingPage.findall("Parameter")
 
-    global group_has_elec_values
     group_has_elec_values = False
-
-    global group_has_group_values
     group_has_group_values = False
 
     for Parameter in Parameters:
         ProcessParameter(Parameter)
     if group_has_elec_values:
-        if convert_to_primary:
+        if primary:
             UpdateColumnHeader(header_row, "вторичные величины", "первичные величины")
         else:
             UpdateColumnHeader(header_row, "вторичные величины", "вторичные величины")
     if group_has_group_values:
         InsertGroupHeader(header_row+1)
 
-    pass
+    return
 
-# обработка функциональной группы параметров
+
+'''
+ process function group
+'''
 def ProcessFunctionGroup(FunctionGroup):
 
     FunctionGroupName = FunctionGroup.attrib['Name']
-    header_row = PrintHeader(FunctionGroupName)
+    PrintHeader(FunctionGroupName)
     SettingPages = FunctionGroup.findall("SettingPage")
     for SettingPage in SettingPages:
         ProcessSettingPage(SettingPage)
 
-    pass
+    return
 
-# вставка в выходной документ служебной информации по устройству
-def PrintSpec():
+'''
+ set ptintable area and other print settings
+'''
+def PrintSetup():
 
-    global currow
-    global ktt
-    global ktn
-    global MLFBDIGSI
+    excel.PrintCommunication = False
+    sheet.PageSetup.PrintArea = "$A$1:$H$" + str(currow)
+    sheet.PageSetup.Zoom = False
+    sheet.PageSetup.FitToPagesWide = 1
+    sheet.PageSetup.FitToPagesTall = 0
+    excel.PrintCommunication = True
 
-    # MLFBDIGSI
-    sheet.Range("A" + str(currow) + ":H" + str(currow)).Merge()
-    MLFBDIGSI = xmld.find('.//General/GeneralData[@Name="MLFBDIGSI"]')
-    MLFBDIGSI = MLFBDIGSI.attrib.get('ID')
-    sheet.Cells(currow, 1).Value = MLFBDIGSI
-    sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
-    currow = currow + 1
+    return
 
-    # Version
-    sheet.Range("A" + str(currow) + ":H" + str(currow)).Merge()
-    Version = xmld.find('.//General/GeneralData[@Name="Version"]')
-    Version = Version.attrib.get('ID')
-    sheet.Cells(currow, 1).Value = Version
-    sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
-    currow = currow + 1
 
-    # Topology
-    sheet.Range("A" + str(currow) + ":H" + str(currow)).Merge()
-    Topology = xmld.find('.//General/GeneralData[@Name="Topology"]')
-    Topology = Topology.attrib.get('ID')
-    sheet.Cells(currow, 1).Value = Topology
-    sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
-    currow = currow + 1
-
-    if ((MLFBDIGSI[0:6]=="7SA522") or (MLFBDIGSI[0:5]=="7SD52") or (MLFBDIGSI[0:6]=="6MD664")):
-        P0203 = float(xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0203"]/Value').text) # Первичное номинальное напряжение
-        P0204 = float(xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0204"]/Value').text) # Вторичное номинальное напряжение
-        ktn = round((P0203 * 1000) / P0204)
-        P0205 = float(xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0205"]/Value').text)  # Первичный номинальный ток ТТ
-        P0206 = xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0206"]/Value').text  # Вторичный номинальный ток ТТ
-        P0206 = xmld.find('.//FunctionGroup/SettingPage/Parameter[@DAdr="0206"]/Comment[@Number="'+P0206+'"]')
-        P0206 = int(P0206.attrib['Name'][0:1])
-        ktt = round(P0205 / P0206)
-        print("Ktt= " + str(ktt))
-        print("Ktn= " + str(ktn))
-    #elif (MLFBDIGSI[0:6]=="7SD522"):
-        #
-    else:
-        if (convert_to_primary == True):
-            ktt = float(input("Укажите Ктт: "))
-            ktn = float(input("Укажите Ктн: "))
-
-    pass
-
-# оформление листа
-PageSetup()
-# спецификация устройства
-PrintSpec()
-# разбор XML
-FunctionGroups = xmld.findall('Settings/FunctionGroup')
-for FunctionGroup in FunctionGroups:
-    ProcessFunctionGroup(FunctionGroup)
-
-# настройка печати
-excel.PrintCommunication = False
-sheet.PageSetup.PrintArea = "$A$1:$H$" + str(currow)
-sheet.PageSetup.Zoom = False
-sheet.PageSetup.FitToPagesWide = 1
-sheet.PageSetup.FitToPagesTall = 0
-excel.PrintCommunication = True
+ProcessCommandLine()
+ProcessAll()
+PrintSetup()
