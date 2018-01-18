@@ -1,7 +1,7 @@
 from cx_Freeze import setup, Executable
 import sys
 
-packages = ['win32com.server', 'win32com.client', 'shlex', 'os', 'lxml']
+packages = ['shlex', 'os', 'lxml']
 includes = ['lxml', 'lxml.etree', 'lxml._elementpath', 'lxml.ElementInclude']
 excludes = []
 path = []
@@ -20,9 +20,7 @@ setup(name='SiemensPie',
               "includes": includes,
               "excludes": excludes,
               "packages": packages,
-              "path": path,
-              "compressed": True,
-              "optimize": 2
+              "path": path
           }
       }
       )

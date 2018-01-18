@@ -6,11 +6,14 @@ import json
 import os
 import re
 import sys
-
 import binascii
-import lxml
 from lxml import etree as lxml
-import win32com.client as win32
+
+from xlsxwriter import Workbook
+from xlsxwriter.worksheet import Worksheet
+from xlsxwriter.format import Format
+
+#import win32com.client as win32
 
 __author__ = 'prim_miv'
 
@@ -18,26 +21,30 @@ xriofile = ""
 xmlfile = ""
 primary = False
 config = {}
-
 xrio_tree = None
 xml_tree = None
 ktt = 1
 ktn = 1
-excel = None
-book = None
-sheet = None
-currow = 1
+book = Workbook
+sheet = Worksheet
+frm_address = Format
+frm_name = Format
+frm_range = Format
+frm_values = Format
+frm_desc = Format
+frm_h1 = Format
+frm_h2 = Format
+frm_h = Format
+cur_row = 0
 group_has_elec_values = False
 group_has_group_values = False
 stash = []
-last_title = ""
-
+last_h1_title = ""
 
 #TODO: уставка 7137 в 7SJ не выводится в Excel, хотя в конфиге, если посмотреть в Digsi, есть.
-from win32com.client import gencache
-if gencache.is_readonly:
-    gencache.is_readonly = False
-    gencache.Rebuild() #create gen_py folder if needed
+#TODO: уставка 1124 в 7SD, описание "Центральная фаза", мы обычно дописываем "... присоединения", поэтому
+#      нужен механизм правки через конфиг не только имени уставки, но и других (любых) столбцов бланка.
+
 
 
 # print small help tip to console, for use in error in parameters
@@ -57,6 +64,7 @@ def PrintSmallHelp():
 def ReadConfig(config_path):
 
     try:
+        #print('Reading config from: ' + config_path)
         with codecs.open(config_path, 'r', 'utf-8') as param_file:
             return json.load(param_file)
     except:
@@ -74,9 +82,14 @@ def ProcessCommandLine():
 
     global xriofile, xmlfile, primary, config
 
+    if getattr(sys, 'frozen', False):
+        config_path = os.path.join(os.path.dirname(sys.executable), 'config.json')
+    else:
+        config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--primary', nargs='?', default='false', help='Convert values to a prymary')
-    parser.add_argument('-c', '--config', nargs='?', default=os.path.dirname(sys.argv[0])+'/config.json', help='Json file with parameters')
+    parser.add_argument('-c', '--config', nargs='?', default=config_path, help='Json file with parameters')
     parser.add_argument('file1', nargs='?')
     parser.add_argument('file2', nargs='?')
     namespace = parser.parse_args()
@@ -107,8 +120,7 @@ def ProcessCommandLine():
         if (os.path.isfile(xmlfile) == False):
             xmlfile = ""
 
-    config_path = 'config.json'
-    if (namespace.config != None):
+    if namespace.config != None:
         config_path = namespace.config
     config = ReadConfig(config_path)
 
@@ -131,12 +143,32 @@ def SelfCRC32():
     buf = (binascii.crc32(buf) & 0xFFFFFFFF)
     return "%08X" % buf
 
+
+'''
+ create outpot excel file
+'''
+def CreateOutputFile():
+
+    global book, sheet
+
+    try:
+        xlsx_path, ext = os.path.splitext(xmlfile)
+        book = Workbook(xlsx_path + '.xlsx')
+        sheet = book.add_worksheet()
+    except:
+        print("Error at create Excel file to output.\n")
+        sys.exit()
+
+    return
+
+
 '''
  start of data process
 '''
 def ProcessAll():
 
     global xrio_tree, xml_tree
+    global config, ktt, ktn, cur_row
 
     # load xml files
     try:
@@ -147,22 +179,6 @@ def ProcessAll():
         PrintSmallHelp()
         sys.exit()
 
-    global excel, book, sheet
-
-    try:
-        #excel = win32.gencache.EnsureDispatch("Excel.Application")
-        excel = win32.DispatchEx('Excel.Application')
-        excel.Visible = True
-        book = excel.Workbooks.Add()
-        sheet = book.Worksheets.Add()
-    except:
-        print("Error at create Exel file to output.\n")
-        sys.exit()
-
-    PageSetup()
-
-    global config, ktt, ktn, currow
-
     # select config section by MLFB code
     MLFBDIGSI = xml_tree.xpath('.//General/GeneralData[@Name="MLFBDIGSI"]/@ID')[0]
     for k in config.keys():
@@ -171,50 +187,35 @@ def ProcessAll():
             break
 
     # prepare ktt and ktn values, only if primary = true
-    if (primary):
+    if primary:
         v_primary = xml_tree.xpath(config['voltage_primary'])[0]
-        v_primary = int(re.sub(r"[^\d+]", "", v_primary, 0, 0))*1000 # voltage in kilovolts
+        v_primary = float(re.sub(r"[^\d+.]", "", v_primary, 0, 0))*1000 # voltage in kilovolts
         v_second = xml_tree.xpath(config['voltage_second'])[0]
-        v_second = int(re.sub(r"[^\d+]", "", v_second, 0, 0))
+        v_second = float(re.sub(r"[^\d+.]", "", v_second, 0, 0))
         ktn = v_primary / v_second
         c_primary = xml_tree.xpath(config['current_primary'])[0]
-        c_primary = int(re.sub(r"[^\d+]", "", c_primary, 0, 0))
+        c_primary = int(re.sub(r"[^\d+\.]", "", c_primary, 0, 0))
         c_second = xml_tree.xpath(config['current_second'])[0]
-        c_second = int(re.sub(r"[^\d+]", "", c_second, 0, 0))
+        c_second = int(re.sub(r"[^\d+\.]", "", c_second, 0, 0))
         ktt = c_primary / c_second
 
     # paste overview info about terminal
     # MLFB code
-    sheet.Range("A" + str(currow) + ":B" + str(currow)).Merge()
-    sheet.Range("C" + str(currow) + ":H" + str(currow)).Merge()
-    sheet.Cells(currow, 1).Value = "MLFB Код"
-    sheet.Cells(currow, 3).Value = MLFBDIGSI
-    sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
-    currow = currow + 1
+    sheet.merge_range(cur_row, 0, cur_row, 1, "MLFB Код", frm_name)
+    sheet.merge_range(cur_row, 2, cur_row, 7, MLFBDIGSI, frm_name)
+    cur_row = cur_row + 1
     # Version
-    sheet.Range("A" + str(currow) + ":B" + str(currow)).Merge()
-    sheet.Range("C" + str(currow) + ":H" + str(currow)).Merge()
-    Version = xml_tree.xpath('.//General/GeneralData[@Name="Version"]/@ID')[0]
-    sheet.Cells(currow, 1).Value = "Версия ПО терминала"
-    sheet.Cells(currow, 3).Value = Version
-    sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
-    currow = currow + 1
+    sheet.merge_range(cur_row, 0, cur_row, 1, "Версия ПО терминала", frm_name)
+    sheet.merge_range(cur_row, 2, cur_row, 7, xml_tree.xpath('.//General/GeneralData[@Name="Version"]/@ID')[0], frm_name)
+    cur_row = cur_row + 1
     # Topology
-    sheet.Range("A" + str(currow) + ":B" + str(currow)).Merge()
-    sheet.Range("C" + str(currow) + ":H" + str(currow)).Merge()
-    Topology = xml_tree.xpath('.//General/GeneralData[@Name="Topology"]/@ID')[0]
-    sheet.Cells(currow, 1).Value = "Топология"
-    sheet.Cells(currow, 3).Value = Topology
-    sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
-    currow = currow + 1
+    sheet.merge_range(cur_row, 0, cur_row, 1, "Топология", frm_name)
+    sheet.merge_range(cur_row, 2, cur_row, 7, xml_tree.xpath('.//General/GeneralData[@Name="Topology"]/@ID')[0], frm_name)
+    cur_row = cur_row + 1
     # Self version (crc32)
-    sheet.Range("A" + str(currow) + ":B" + str(currow)).Merge()
-    sheet.Range("C" + str(currow) + ":H" + str(currow)).Merge()
-    Topology = xml_tree.xpath('.//General/GeneralData[@Name="Topology"]/@ID')[0]
-    sheet.Cells(currow, 1).Value = "Версия SiemensPie"
-    sheet.Cells(currow, 3).Value = SelfCRC32()
-    sheet.Cells(currow, 1).HorizontalAlignment = win32.constants.xlLeft
-    currow = currow + 1
+    sheet.merge_range(cur_row, 0, cur_row, 1, "Версия SiemensPie", frm_name)
+    sheet.merge_range(cur_row, 2, cur_row, 7, SelfCRC32(), frm_name)
+    cur_row = cur_row + 1
 
     # main work
     FunctionGroups = xml_tree.findall('Settings/FunctionGroup')
@@ -229,43 +230,32 @@ def ProcessAll():
 '''
 def PageSetup():
 
-    # page margins
-    #sheet.PageSetup.LeftMargin = excel.InchesToPoints(0.393700787401575)
-    #sheet.PageSetup.RightMargin = excel.InchesToPoints(0.393700787401575)
-    #sheet.PageSetup.TopMargin = excel.InchesToPoints(0.393700787401575)
-    #sheet.PageSetup.BottomMargin = excel.InchesToPoints(0.393700787401575)
-    #sheet.PageSetup.HeaderMargin = excel.InchesToPoints(0.118110236220472)
-    #sheet.PageSetup.FooterMargin = excel.InchesToPoints(0.118110236220472)
-    #sheet.PageSetup.FitToPagesWide = 1
-    #excel.ActiveWindow.Zoom = 90
+    # page margins, headers and footers
+    sheet.set_margins(0.4, 0.4, 0.4, 0.4)
+    sheet.set_header("", {'margin': 0.12})
+    sheet.set_footer("&amp;R&amp;F\n&amp;P", {'margin': 0.12})
+    sheet.set_zoom(90)
+    sheet.set_landscape()
+    sheet.fit_to_pages(1, 0)
 
-    # text alignment
-    sheet.Columns("A:H").VerticalAlignment = win32.constants.xlCenter
-    sheet.Columns("A:H").WrapText = True
-    sheet.Columns("A:H").NumberFormat = "@"
+    # text formats
+    global frm_address, frm_name, frm_range, frm_values, frm_desc, frm_h1, frm_h2, frm_h
+    frm_address = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
+    frm_name = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
+    frm_range = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
+    frm_values = book.add_format({'align': 'center', 'valign': 'vcenter','text_wrap': True, 'num_format': '@'})
+    frm_desc = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
+    frm_desc = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
+    frm_h1 = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'font_size': 13, 'bg_color': '#D9D9D9'})
+    frm_h2 = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#D9D9D9'})
+    frm_h = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#D9D9D9'})
 
-    # column width
-    sheet.Columns("A:A").ColumnWidth = 6                                # address
-    sheet.Columns("A:A").HorizontalAlignment = win32.constants.xlCenter
-    sheet.Columns("B:B").ColumnWidth = 23                               # name
-    sheet.Columns("C:C").ColumnWidth = 30                               # range
-    sheet.Columns("D:G").ColumnWidth = 8.3                              # values in groups
-    sheet.Columns("D:G").HorizontalAlignment = win32.constants.xlCenter
-    sheet.Columns("H:H").ColumnWidth = 41.6                             # description
-
-    # page margins
-    sheet.PageSetup.LeftMargin = excel.InchesToPoints(0.433070866141732)
-    sheet.PageSetup.RightMargin = excel.InchesToPoints(0.433070866141732)
-    sheet.PageSetup.TopMargin = excel.InchesToPoints(0.393700787401575)
-    sheet.PageSetup.BottomMargin = excel.InchesToPoints(0.590551181102362)
-    sheet.PageSetup.HeaderMargin = excel.InchesToPoints(0.196850393700787)
-    sheet.PageSetup.FooterMargin = excel.InchesToPoints(0.118110236220472)
-    sheet.PageSetup.FitToPagesWide = 1
-    sheet.PageSetup.Orientation = win32.constants.xlLandscape
-    excel.ActiveWindow.Zoom = 90
-
-    # footer
-    sheet.PageSetup.RightFooter = "&F\n&P"
+    # set column width and formats
+    sheet.set_column(0, 0, 6, frm_address)    # address
+    sheet.set_column(1, 1, 23, frm_name)      # name
+    sheet.set_column(2, 2, 30, frm_range)     # range
+    sheet.set_column(3, 6, 8.3, frm_values)   # values in groups
+    sheet.set_column(7, 7, 41.6, frm_desc)    # description
 
     return
 
@@ -273,77 +263,80 @@ def PageSetup():
 '''
  insert chapter header
 '''
-def PrintHeader(text):
+def PrintH1(text):
 
-    global currow, last_title
+    global cur_row, last_h1_title, frm_h1
 
     # check text to titles_correct
     text = config['titles_correct'].get(text, text)
 
-    if (currow > 1) and (sheet.Cells(currow, 2).Text != ""):
-        currow = currow +1
-    sheet.Range("A"+str(currow)+":H"+str(currow)).Merge()
-    sheet.Cells(currow,1).Value = text
-    sheet.Cells(currow,1).HorizontalAlignment = win32.constants.xlLeft
-    sheet.Cells(currow,1).Font.Bold = True
-    sheet.Cells(currow,1).Font.Size = 13
-    sheet.Cells(currow,1).Interior.Pattern = win32.constants.xlSolid
-    sheet.Cells(currow,1).Interior.ThemeColor = win32.constants.xlThemeColorDark1
-    sheet.Cells(currow,1).Interior.TintAndShade = -0.149998474074526
-    currow = currow +1
-    last_title = text
+    sheet.merge_range(cur_row, 0, cur_row, 7, text, frm_h1)
+    cur_row = cur_row + 1
+
+    # save last h1 header for titles_correct inn PrintH2
+    last_h1_title = text
 
     return
+
 
 '''
  insert chapter sub-header
 '''
-def PrintSubHeader(text):
+def PrintH2(text):
 
-    if text != "":
+    if text != "" and text != last_h1_title:
 
-        global currow
+        global cur_row, frm_h2
 
         # check text to titles_correct
-        text = config['titles_correct'].get(last_title+"|"+text, text)
+        text = config['titles_correct'].get(last_h1_title+"|"+text, text)
 
-        if (currow > 1) and (sheet.Cells(currow, 2).Text != ""):
-            currow = currow +1
-        sheet.Range("A"+str(currow)+":H"+str(currow)).Merge()
-        sheet.Cells(currow,1).Value = text
-        sheet.Cells(currow,1).HorizontalAlignment = win32.constants.xlLeft
-        sheet.Cells(currow,1).Font.Bold = True
-        sheet.Cells(currow,1).Font.Size = 11
-        sheet.Cells(currow,1).Interior.Pattern = win32.constants.xlSolid
-        sheet.Cells(currow,1).Interior.ThemeColor = win32.constants.xlThemeColorDark1
-        sheet.Cells(currow,1).Interior.TintAndShade = -0.149998474074526
-        currow = currow +1
+        sheet.merge_range(cur_row, 0, cur_row, 7, text, frm_h2)
+        cur_row = cur_row + 1
 
-        return
+    return
+
 
 '''
  insert header with column titles
 '''
-def PrintColumnHeader():
+def PrintGroupHeader(at_row):
 
-    global currow
+    sheet.merge_range(at_row, 0, at_row + 1, 0, "№\r\nАдрес", frm_h)
+    sheet.merge_range(at_row, 1, at_row + 1, 1, "Наименование уставки", frm_h)
 
-    sheet.Cells(currow,1).Value = "№\r\nАдрес"
-    sheet.Cells(currow,2).Value = "Наименование уставки"
-    sheet.Cells(currow,3).Value = "Диапазон уставок"
-    sheet.Cells(currow,4).Value = "Заданная уставка"
-    sheet.Cells(currow,8).Value = "Описание"
-    sheet.Range("D"+str(currow)+":G"+str(currow)).Merge()
+    if group_has_elec_values:
+        sheet.write(at_row, 2, "Диапазон уставок", frm_h)
+        sheet.write(at_row + 1, 2, "(вторичные величины)", frm_h)
+    else:
+        sheet.merge_range(at_row, 2, at_row + 1, 2, "Диапазон уставок", frm_h)
 
-    sheet.Range("A" + str(currow) + ":H" + str(currow)).HorizontalAlignment = win32.constants.xlCenter
-    sheet.Range("A" + str(currow) + ":H" + str(currow)).Interior.Pattern = win32.constants.xlSolid
-    sheet.Range("A" + str(currow) + ":H" + str(currow)).Interior.ThemeColor = win32.constants.xlThemeColorDark1
-    sheet.Range("A" + str(currow) + ":H" + str(currow)).Interior.TintAndShade = -0.149998474074526
-    sheet.Range("A" + str(currow) + ":H" + str(currow)).Font.Bold = True
-    sheet.Rows(currow).RowHeight = 32
-    currow = currow + 1
+    if group_has_group_values:
+        if group_has_elec_values:
+            if primary:
+                sheet.merge_range(at_row, 3, at_row, 6, "Заданная уставка\r\n(первичные величины)", frm_h)
+            else:
+                sheet.merge_range(at_row, 3, at_row, 6, "Заданная уставка\r\n(вторичные величины)", frm_h)
+        else:
+            sheet.merge_range(at_row, 3, at_row, 6, "Заданная уставка", frm_h)
+        sheet.write(at_row + 1, 3, "Группа A", frm_h)
+        sheet.write(at_row + 1, 4, "Группа B", frm_h)
+        sheet.write(at_row + 1, 5, "Группа C", frm_h)
+        sheet.write(at_row + 1, 6, "Группа D", frm_h)
+    else:
+        if group_has_elec_values:
+            if primary:
+                sheet.merge_range(at_row, 3, at_row, 6, "Заданная уставка", frm_h)
+                sheet.merge_range(at_row + 1, 3, at_row + 1, 6, "(первичные величины)", frm_h)
+            else:
+                sheet.merge_range(at_row, 3, at_row, 6, "Заданная уставка\r\n(вторичные величины)", frm_h)
+                sheet.merge_range(at_row + 1, 3, at_row + 1, 6, "(вторичные величины)", frm_h)
+        else:
+            sheet.merge_range(at_row, 3, at_row + 1, 6, "Заданная уставка", frm_h)
 
-    return currow - 1
+    sheet.merge_range(at_row, 7, at_row + 1, 7, "Описание", frm_h)
+
+    return
 
 
 '''
@@ -365,7 +358,7 @@ def UpdateColumnHeader(RowNo, addtext_range="", addtext_value=""):
 # добавление текста групп уставок в шапку таблицы
 def InsertGroupHeader(RowNo):
 
-    global currow
+    global cur_row
     global group_has_elec_values
 
     sheet.Cells(RowNo, 1).EntireRow.Insert(1)
@@ -389,13 +382,13 @@ def InsertGroupHeader(RowNo):
     sheet.Range("C" + str(RowNo-1) + ":C" + str(RowNo)).Merge()
     sheet.Range("H" + str(RowNo-1) + ":H" + str(RowNo)).Merge()
 
-    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).HorizontalAlignment = win32.constants.xlCenter
-    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Interior.Pattern = win32.constants.xlSolid
-    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Interior.ThemeColor = win32.constants.xlThemeColorDark1
+    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).HorizontalAlignment = -4108 # win32.constants.xlCenter
+    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Interior.Pattern = 1 # win32.constants.xlSolid
+    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Interior.ThemeColor = 1 #win32.constants.xlThemeColorDark1
     sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Interior.TintAndShade = -0.149998474074526
     sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Font.Bold = True
 
-    currow = currow + 1
+    cur_row = cur_row + 1
 
     return
 
@@ -413,8 +406,7 @@ def ExtractParameterName(Address):
     else:
         ParameterName= ""
 
-    # correct some parameter names by config
-    return config['params_correct'].get(Address, ParameterName)
+    return ParameterName
 
 
 '''
@@ -446,7 +438,7 @@ def ConvertToPrimary(Address, Value, Dimension, SecondaryPrecision):
     rez = Value
     if re.search(r"\d+(\.|)\d*", Value, re.MULTILINE):
         Value = float(Value)
-        if (Dimension=="А"):
+        if (Dimension == "А"):
             rez = "%g" % round(Value * ktt, SecondaryPrecision - 1) + " " + Dimension
             group_has_elec_values = True
         elif (Dimension=="В"):
@@ -480,7 +472,7 @@ def ExtractParameterValues(Parameter):
 
     global group_has_group_values
 
-    ParameterValue  = Parameter.find(r"Value")                 # !!!
+    ParameterValue  = Parameter.find(r"Value")
     ParameterValueA = Parameter.find(r"Value[@SettingGroup='A']")
     ParameterValueB = Parameter.find(r"Value[@SettingGroup='B']")
     ParameterValueC = Parameter.find(r"Value[@SettingGroup='C']")
@@ -566,53 +558,56 @@ def ExtractParameterRange(Parameter):
 '''
 def PrintParameterData(ParameterData):
 
-    global currow
+    global cur_row
 
-    sheet.Cells(currow, 1).Value = ParameterData['Address']
-    sheet.Cells(currow, 2).Value = ParameterData['Name']
-    sheet.Cells(currow, 3).Value = ParameterData['Range']
+    # write data from config then correct it by "params_correct" config section
+    sheet.write(cur_row, 0, ParameterData['Address'], frm_address)
+    sheet.write(cur_row, 1, ParameterData['Name'], frm_name)
+    sheet.write(cur_row, 2, ParameterData['Range'], frm_range)
 
     ParameterValues = ParameterData['Values']
 
     # if values are equal merge cells
     if (ParameterValues[0] == ParameterValues[1] == ParameterValues[2] == ParameterValues[3]):
-        sheet.Range("D" + str(currow) + ":G" + str(currow)).Merge()
-        sheet.Cells(currow, 4).Value = ParameterValues[0]
+        sheet.merge_range(cur_row, 3, cur_row, 6, ParameterValues[0], frm_values)
     elif (ParameterValues[0] == ParameterValues[1] == ParameterValues[2]):
-        sheet.Range("D" + str(currow) + ":F" + str(currow)).Merge()
-        sheet.Cells(currow, 4).Value = ParameterValues[0]
-        sheet.Cells(currow, 7).Value = ParameterValues[3]
+        sheet.merge_range(cur_row, 3, cur_row, 5, ParameterValues[0], frm_values)
+        sheet.write(cur_row, 6, ParameterValues[3], frm_values)
     elif (ParameterValues[0] == ParameterValues[1]):
-        sheet.Range("D" + str(currow) + ":E" + str(currow)).Merge()
-        sheet.Cells(currow, 4).Value = ParameterValues[0]
+        sheet.merge_range(cur_row, 3, cur_row, 4, ParameterValues[0], frm_values)
         if (ParameterValues[2] == ParameterValues[3]):
-            sheet.Range("F" + str(currow) + ":G" + str(currow)).Merge()
-            sheet.Cells(currow, 6).Value = ParameterValues[2]
+            sheet.merge_range(cur_row, 5, cur_row, 6, ParameterValues[2], frm_values)
         else:
-            sheet.Cells(currow, 6).Value = ParameterValues[2]
-            sheet.Cells(currow, 7).Value = ParameterValues[3]
+            sheet.write(cur_row, 5, ParameterValues[2], frm_values)
+            sheet.write(cur_row, 6, ParameterValues[3], frm_values)
     elif (ParameterValues[1] == ParameterValues[2] == ParameterValues[3]):
-        sheet.Cells(currow, 4).Value = ParameterValues[0]
-        sheet.Range("E" + str(currow) + ":G" + str(currow)).Merge()
-        sheet.Cells(currow, 5).Value = ParameterValues[1]
+        sheet.merge_range(cur_row, 3, cur_row, 3, ParameterValues[0], frm_values)
+        sheet.merge_range(cur_row, 4, cur_row, 6, ParameterValues[1], frm_values)
     elif (ParameterValues[2] == ParameterValues[3]):
-        sheet.Cells(currow, 4).Value = ParameterValues[0]
-        sheet.Cells(currow, 5).Value = ParameterValues[1]
-        sheet.Range("F" + str(currow) + ":G" + str(currow)).Merge()
-        sheet.Cells(currow, 6).Value = ParameterValues[2]
+        sheet.write(cur_row, 3, ParameterValues[0], frm_values)
+        sheet.write(cur_row, 4, ParameterValues[1], frm_values)
+        sheet.merge_range(cur_row, 5, cur_row, 6, ParameterValues[2], frm_values)
     elif (ParameterValues[1] == ParameterValues[2]):
-        sheet.Cells(currow, 4).Value = ParameterValues[0]
-        sheet.Range("E" + str(currow) + ":F" + str(currow)).Merge()
-        sheet.Cells(currow, 5).Value = ParameterValues[1]
-        sheet.Cells(currow, 7).Value = ParameterValues[3]
+        sheet.write(cur_row, 3, ParameterValues[0], frm_values)
+        sheet.merge_range(cur_row, 4, cur_row, 5, ParameterValues[1], frm_values)
+        sheet.write(cur_row, 6, ParameterValues[3], frm_values)
     else:
-        sheet.Cells(currow, 4).Value = ParameterValues[0]
-        sheet.Cells(currow, 5).Value = ParameterValues[1]
-        sheet.Cells(currow, 6).Value = ParameterValues[2]
-        sheet.Cells(currow, 7).Value = ParameterValues[3]
+        sheet.write(cur_row, 3, ParameterValues[0], frm_values)
+        sheet.write(cur_row, 4, ParameterValues[1], frm_values)
+        sheet.write(cur_row, 5, ParameterValues[2], frm_values)
+        sheet.write(cur_row, 6, ParameterValues[3], frm_values)
 
-    sheet.Cells(currow, 8).Value = ParameterData['Description']
-    currow = currow + 1
+    sheet.write(cur_row, 7, ParameterData['Description'], frm_desc)
+
+    # and correct (or add new)
+    addr = ParameterData['Address'];
+    need_correct = config["params_correct"].get(addr, None)
+    if need_correct != None:
+        col_no = config["params_correct"].get(addr, None)[0]
+        col_val = config["params_correct"].get(addr, None)[1]
+        sheet.write(cur_row, int(col_no), col_val)
+
+    cur_row = cur_row + 1
 
     # insert formula with comments
     # !!!
@@ -668,8 +663,6 @@ def ProcessParameter(Parameter):
     ParameterName = ExtractParameterName(ParameterAddress)
     ParameterDescription = Parameter.attrib['Name']
 
-    ParameterType = Parameter.attrib['Type']
-
     Range = ExtractParameterRange(Parameter)
     ParameterRange = Range[0]
     ParameterValues = ExtractParameterValues(Parameter)
@@ -697,25 +690,22 @@ def ProcessParameter(Parameter):
 '''
 def ProcessSettingPage(SettingPage):
 
-    global group_has_elec_values, group_has_group_values
+    global cur_row, group_has_elec_values, group_has_group_values
 
     SettingPageName = SettingPage.attrib['Name']
-    PrintSubHeader(SettingPageName)
-    header_row = PrintColumnHeader()
+    PrintH2(SettingPageName)
+
     Parameters = SettingPage.findall("Parameter")
 
     group_has_elec_values = False
     group_has_group_values = False
+    header_row = cur_row
+    cur_row = cur_row + 2
 
     for Parameter in Parameters:
         ProcessParameter(Parameter)
-    if group_has_elec_values:
-        if primary:
-            UpdateColumnHeader(header_row, "вторичные величины", "первичные величины")
-        else:
-            UpdateColumnHeader(header_row, "вторичные величины", "вторичные величины")
-    if group_has_group_values:
-        InsertGroupHeader(header_row+1)
+
+    PrintGroupHeader(header_row)
 
     return
 
@@ -726,28 +716,17 @@ def ProcessSettingPage(SettingPage):
 def ProcessFunctionGroup(FunctionGroup):
 
     FunctionGroupName = FunctionGroup.attrib['Name']
-    PrintHeader(FunctionGroupName)
+    PrintH1(FunctionGroupName)
     SettingPages = FunctionGroup.findall("SettingPage")
     for SettingPage in SettingPages:
         ProcessSettingPage(SettingPage)
 
     return
 
-'''
- set ptintable area and other print settings
-'''
-def PrintSetup():
-
-    excel.PrintCommunication = False
-    sheet.PageSetup.PrintArea = "$A$1:$H$" + str(currow)
-    sheet.PageSetup.Zoom = False
-    sheet.PageSetup.FitToPagesWide = 1
-    sheet.PageSetup.FitToPagesTall = 0
-    excel.PrintCommunication = True
-
-    return
 
 
 ProcessCommandLine()
+CreateOutputFile()
+PageSetup()
 ProcessAll()
-PrintSetup()
+book.close()

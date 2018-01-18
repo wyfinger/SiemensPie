@@ -1,2 +1,2 @@
-python34 setup.py build
+python setup.py build
 pause
