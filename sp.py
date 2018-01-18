@@ -7,6 +7,8 @@ import os
 import re
 import sys
 import binascii
+
+import time
 from lxml import etree as lxml
 
 from xlsxwriter import Workbook
@@ -88,7 +90,7 @@ def ProcessCommandLine():
         config_path = os.path.join(os.path.dirname(__file__), 'config.json')
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--primary', nargs='?', default='false', help='Convert values to a prymary')
+    parser.add_argument('-p', '--primary', nargs='?', default='true', help='Convert values to a prymary')
     parser.add_argument('-c', '--config', nargs='?', default=config_path, help='Json file with parameters')
     parser.add_argument('file1', nargs='?')
     parser.add_argument('file2', nargs='?')
@@ -568,26 +570,26 @@ def PrintParameterData(ParameterData):
     ParameterValues = ParameterData['Values']
 
     # if values are equal merge cells
-    if (ParameterValues[0] == ParameterValues[1] == ParameterValues[2] == ParameterValues[3]):
+    if ParameterValues[0] == ParameterValues[1] == ParameterValues[2] == ParameterValues[3]:
         sheet.merge_range(cur_row, 3, cur_row, 6, ParameterValues[0], frm_values)
-    elif (ParameterValues[0] == ParameterValues[1] == ParameterValues[2]):
+    elif ParameterValues[0] == ParameterValues[1] == ParameterValues[2]:
         sheet.merge_range(cur_row, 3, cur_row, 5, ParameterValues[0], frm_values)
         sheet.write(cur_row, 6, ParameterValues[3], frm_values)
-    elif (ParameterValues[0] == ParameterValues[1]):
+    elif ParameterValues[0] == ParameterValues[1]:
         sheet.merge_range(cur_row, 3, cur_row, 4, ParameterValues[0], frm_values)
-        if (ParameterValues[2] == ParameterValues[3]):
+        if ParameterValues[2] == ParameterValues[3]:
             sheet.merge_range(cur_row, 5, cur_row, 6, ParameterValues[2], frm_values)
         else:
             sheet.write(cur_row, 5, ParameterValues[2], frm_values)
             sheet.write(cur_row, 6, ParameterValues[3], frm_values)
-    elif (ParameterValues[1] == ParameterValues[2] == ParameterValues[3]):
-        sheet.merge_range(cur_row, 3, cur_row, 3, ParameterValues[0], frm_values)
+    elif ParameterValues[1] == ParameterValues[2] == ParameterValues[3]:
+        sheet.write(cur_row, 3, ParameterValues[0], frm_values)
         sheet.merge_range(cur_row, 4, cur_row, 6, ParameterValues[1], frm_values)
-    elif (ParameterValues[2] == ParameterValues[3]):
+    elif ParameterValues[2] == ParameterValues[3]:
         sheet.write(cur_row, 3, ParameterValues[0], frm_values)
         sheet.write(cur_row, 4, ParameterValues[1], frm_values)
         sheet.merge_range(cur_row, 5, cur_row, 6, ParameterValues[2], frm_values)
-    elif (ParameterValues[1] == ParameterValues[2]):
+    elif ParameterValues[1] == ParameterValues[2]:
         sheet.write(cur_row, 3, ParameterValues[0], frm_values)
         sheet.merge_range(cur_row, 4, cur_row, 5, ParameterValues[1], frm_values)
         sheet.write(cur_row, 6, ParameterValues[3], frm_values)
@@ -600,7 +602,7 @@ def PrintParameterData(ParameterData):
     sheet.write(cur_row, 7, ParameterData['Description'], frm_desc)
 
     # and correct (or add new)
-    addr = ParameterData['Address'];
+    addr = ParameterData['Address']
     need_correct = config["params_correct"].get(addr, None)
     if need_correct != None:
         col_no = config["params_correct"].get(addr, None)[0]
@@ -730,3 +732,4 @@ CreateOutputFile()
 PageSetup()
 ProcessAll()
 book.close()
+time.sleep(10)
