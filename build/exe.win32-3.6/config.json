@@ -94,5 +94,28 @@
     },
     "titles_correct" : {
     }
+  },
+  "6MD664" : {
+    "voltage_primary" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0203\"]/Value/text()",
+    "voltage_second" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0204\"]/Value/text()",
+    "current_primary" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0205\"]/Value/text()",
+    "current_second" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0206\"]/Comment[@Number=//Parameter[@DAdr=\"0206\"]/Value/text()]/@Name",
+    "params_without_convert" : ["0203", "0204", "0205", "0206",
+	  "0x2000029E6978",
+	  "0x2000029F6979",
+	  "0x200004116984",
+	  "0x200004116985",
+	  "0x200004126984",
+	  "0x200004126985"],
+    "params_to_rearrange" : {
+    },
+    "params_correct" : {
+	  "0x20000411698E"  : [1, "Разн φ СинхрВкл"],
+	  "0x20000412698E"  : [1, "Разн φ СинхрВкл"],
+	  "3402"            : [1, "ВЫКЛ, Контроль"],
+	  "3459"            : [1, "1.АПВ:ВЫКЛ,гот"],
+    },
+    "titles_correct" : {
+    }
   }
 }
