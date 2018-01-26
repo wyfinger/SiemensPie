@@ -3,6 +3,7 @@ import sys
 
 packages = ['shlex', 'os', 'lxml']
 includes = ['lxml', 'lxml.etree', 'lxml._elementpath', 'lxml.ElementInclude']
+includefiles = ['doc.ico']
 excludes = []
 path = []
 
@@ -12,12 +13,13 @@ setup(name='SiemensPie',
       executables=[
           Executable(
               script='sp.py',
-              icon='pict.ico'
+              icon='exe.ico'
           )
       ],
       options={
           "build_exe": {
               "includes": includes,
+              "include_files": includefiles,
               "excludes": excludes,
               "packages": packages,
               "path": path

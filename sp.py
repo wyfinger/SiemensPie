@@ -15,7 +15,8 @@ from xlsxwriter import Workbook
 from xlsxwriter.worksheet import Worksheet
 from xlsxwriter.format import Format
 
-#import win32com.client as win32
+import winreg
+
 
 __author__ = 'prim_miv'
 
@@ -726,7 +727,39 @@ def ProcessFunctionGroup(FunctionGroup):
     return
 
 
+'''
+ register .xrio extention for siemens py 
+'''
+def RegisterXrioExt():
 
+    if getattr(sys, 'frozen', False):
+        exe_path = sys.executable
+        ico_path = os.path.join(os.path.dirname(sys.executable), 'doc.ico')
+    else:
+        return
+
+    exe_path = '"' + exe_path + '" "%1"'
+    ico_path = ico_path + ",0"
+
+    key_xrio = winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, r".xrio")
+    winreg.SetValue(key_xrio, None, winreg.REG_SZ, r"SiemensPie.XRio")
+    winreg.SetValue(key_xrio, r"Content Type", winreg.REG_SZ, r"text/html")
+    winreg.CloseKey(key_xrio)
+    key_xrio = winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, r"SiemensPie.XRio")
+    key_di = winreg.CreateKey(key_xrio, r"DefaultIcon")
+    winreg.SetValue(key_di, None, winreg.REG_SZ, ico_path)
+    winreg.CloseKey(key_di)
+    key_sh = winreg.CreateKey(key_xrio, r"shell")
+    key_op = winreg.CreateKey(key_sh, r"open")
+    key_cmd = winreg.CreateKey(key_op, r"command")
+    winreg.SetValue(key_cmd, None, winreg.REG_SZ, exe_path)
+    winreg.CloseKey(key_cmd)
+    winreg.CloseKey(key_op)
+    winreg.CloseKey(key_sh)
+
+    return
+
+RegisterXrioExt()
 ProcessCommandLine()
 CreateOutputFile()
 PageSetup()
