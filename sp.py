@@ -86,9 +86,9 @@ def ProcessCommandLine():
     global xriofile, xmlfile, primary, config
 
     if getattr(sys, 'frozen', False):
-        config_path = os.path.join(os.path.dirname(sys.executable), 'config.json')
+        config_path = os.path.join(os.path.dirname(sys.executable), "config.json")
     else:
-        config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "config.json")
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--primary', nargs='?', default='true', help='Convert values to a prymary')
@@ -316,6 +316,7 @@ def PrintGroupHeader(at_row):
 
     if group_has_group_values:
         if group_has_elec_values:
+            sheet.set_row(at_row, 30)
             if primary:
                 sheet.merge_range(at_row, 3, at_row, 6, "Заданная уставка\r\n(первичные величины)", frm_h)
             else:
@@ -765,4 +766,4 @@ CreateOutputFile()
 PageSetup()
 ProcessAll()
 book.close()
-time.sleep(10)
+time.sleep(5)
