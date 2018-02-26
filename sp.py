@@ -209,7 +209,8 @@ def ProcessAll():
     cur_row = cur_row + 1
     # Version
     sheet.merge_range(cur_row, 0, cur_row, 1, "Версия ПО терминала", frm_name)
-    sheet.merge_range(cur_row, 2, cur_row, 7, xml_tree.xpath('.//General/GeneralData[@Name="Version"]/@ID')[0], frm_name)
+    #sheet.merge_range(cur_row, 2, cur_row, 7, xml_tree.xpath('.//General/GeneralData[@Name="Version"]/@ID')[0], frm_name)   # версия ПО из XML файла
+    sheet.merge_range(cur_row, 2, cur_row, 7, xrio_tree.xpath('//XRio/CUSTOM/Block/Block[@Id="GENERALINFO"]/Block/Parameter[@Id="SERIAL_NUMBER"]/Value/text()')[0], frm_name) # версия ПО из XRio файла
     cur_row = cur_row + 1
     # Topology
     sheet.merge_range(cur_row, 0, cur_row, 1, "Топология", frm_name)
