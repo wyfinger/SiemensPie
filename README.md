@@ -1,5 +1,5 @@
 # SiemensPie
-![SiemensPie Icon](https://raw.githubusercontent.com/wyfinger/SiemensPie/master/pict.ico) 
+![SiemensPie Icon](https://raw.githubusercontent.com/wyfinger/SiemensPie/master/doc.ico) 
 
 Siemens Siprotec Protection Config Processor
 
