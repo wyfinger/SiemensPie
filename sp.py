@@ -449,11 +449,11 @@ def ConvertToPrimary(Address, Value, Dimension, SecondaryPrecision):
         elif (Dimension=="В"):
             rez = "%g" % (Value * ktn / 1000) + " кВ"
             group_has_elec_values = True
-        elif (Dimension=="Ом"):
-            rez = "%g" % round(Value * ktn / ktt, SecondaryPrecision - 1) + " " + Dimension
+        elif (Dimension=="Ом"): # 2018-03-23: в 7SA в первичных 3 знака после запятой, в 7SD - два, везде делаем 3
+            rez = "%g" % round(Value * ktn / ktt, SecondaryPrecision) + " " + Dimension
             group_has_elec_values = True
         elif (Dimension=="Ом / км"):
-            rez = "%g" % round(Value * ktn / ktt, SecondaryPrecision - 2) + " " + Dimension
+            rez = "%g" % round(Value * ktn / ktt, SecondaryPrecision - 1) + " " + Dimension
             group_has_elec_values = True
         elif (Dimension=="ВА"):
             rez = "%g" % round(Value * ktn * ktt / 1000000, SecondaryPrecision + 1) + " МВА"
