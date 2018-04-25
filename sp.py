@@ -166,6 +166,35 @@ def CreateOutputFile():
 
 
 '''
+ process stash scrap
+'''
+def ProcessStash():
+
+    global stash, cur_row
+    global group_has_elec_values, group_has_group_values
+
+
+    if len(stash) == 0: return
+
+    cur_row = cur_row + 3
+
+    PrintH1("Потерянные уставки")
+
+    group_has_elec_values = False
+    group_has_group_values = False
+    header_row = cur_row
+    cur_row = cur_row + 2
+
+    for st in stash:
+        PrintParameterData(st['ParameterData'])
+        sheet.write(cur_row-1, 14, 'Pop After Address: ' + st['PopAfter'])
+
+
+    PrintGroupHeader(header_row)
+
+    return
+
+'''
  start of data process
 '''
 def ProcessAll():
@@ -225,6 +254,10 @@ def ProcessAll():
     FunctionGroups = xml_tree.findall('Settings/FunctionGroup')
     for FunctionGroup in FunctionGroups:
         ProcessFunctionGroup(FunctionGroup)
+
+    # iss9: if ref address to move parameters is not exists we can still this parameter.
+    #  But we can drop this parameters to end of exported list.
+    ProcessStash()
 
     return
 
@@ -767,4 +800,5 @@ CreateOutputFile()
 PageSetup()
 ProcessAll()
 book.close()
+
 time.sleep(5)
