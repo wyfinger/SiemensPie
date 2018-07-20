@@ -17,12 +17,12 @@ from xlsxwriter.format import Format
 
 import winreg
 
-
 __author__ = 'prim_miv'
 
 xriofile = ""
 xmlfile = ""
-primary = False
+primary_form_cmd = False
+primary = True
 config = {}
 xrio_tree = None
 xml_tree = None
@@ -31,6 +31,7 @@ ktn = 1
 book = Workbook
 sheet = Worksheet
 frm_address = Format
+frm_address_h = Format
 frm_name = Format
 frm_range = Format
 frm_values = Format
@@ -42,17 +43,18 @@ cur_row = 0
 group_has_elec_values = False
 group_has_group_values = False
 stash = []
+inserted_stash = []
+last_printed_address = '0'
 last_h1_title = ""
 
-#TODO: уставка 7137 в 7SJ не выводится в Excel, хотя в конфиге, если посмотреть в Digsi, есть.
-#TODO: уставка 1124 в 7SD, описание "Центральная фаза", мы обычно дописываем "... присоединения", поэтому
-#      нужен механизм правки через конфиг не только имени уставки, но и других (любых) столбцов бланка.
 
+# TODO: уставка 7137 в 7SJ не выводится в Excel, хотя в конфиге, если посмотреть в Digsi, есть.
+# TODO: уставка 1124 в 7SD, описание "Центральная фаза", мы обычно дописываем "... присоединения", поэтому
+#      нужен механизм правки через конфиг не только имени уставки, но и других (любых) столбцов бланка.
 
 
 # print small help tip to console, for use in error in parameters
 def PrintSmallHelp():
-
     print("Use: sp.exe [-p] [-c] [xml or xrio file] [xml or xrio file]")
     print("  -p  - convert electrical values to primary")
     print("  -c  - path to config file (Json)")
@@ -64,10 +66,11 @@ def PrintSmallHelp():
 '''
  read config Json
 '''
-def ReadConfig(config_path):
 
+
+def ReadConfig(config_path):
     try:
-        #print('Reading config from: ' + config_path)
+        # print('Reading config from: ' + config_path)
         with codecs.open(config_path, 'r', 'utf-8') as param_file:
             return json.load(param_file)
     except:
@@ -81,9 +84,10 @@ def ReadConfig(config_path):
 '''
  command line parameter analyses
 '''
-def ProcessCommandLine():
 
-    global xriofile, xmlfile, primary, config
+
+def ProcessCommandLine():
+    global xriofile, xmlfile, primary_form_cmd, config
 
     if getattr(sys, 'frozen', False):
         config_path = os.path.join(os.path.dirname(sys.executable), "config.json")
@@ -97,8 +101,7 @@ def ProcessCommandLine():
     parser.add_argument('file2', nargs='?')
     namespace = parser.parse_args()
 
-    # convert params to primary? in's stored in secondary
-    primary = (namespace.primary != 'false')
+    primary_form_cmd = (namespace.primary != 'false')
 
     # find .xml and .xrio files
     if (namespace.file1 != None):
@@ -141,8 +144,10 @@ def ProcessCommandLine():
 '''
  calculate crc32 of this file
 '''
+
+
 def SelfCRC32():
-    buf = open(sys.argv[0],'rb').read()
+    buf = open(sys.argv[0], 'rb').read()
     buf = (binascii.crc32(buf) & 0xFFFFFFFF)
     return "%08X" % buf
 
@@ -150,8 +155,9 @@ def SelfCRC32():
 '''
  create outpot excel file
 '''
-def CreateOutputFile():
 
+
+def CreateOutputFile():
     global book, sheet
 
     try:
@@ -168,13 +174,15 @@ def CreateOutputFile():
 '''
  process stash scrap
 '''
-def ProcessStash():
 
+def print_consumed_params():
     global stash, cur_row
     global group_has_elec_values, group_has_group_values
 
+    # if stash is clear (all parameters are inserted) we need return
+    if any(p['Inserted']== True for p in stash):  return
 
-    if len(stash) == 0: return
+    # else let's print consumed parameters
 
     cur_row = cur_row + 3
 
@@ -186,21 +194,24 @@ def ProcessStash():
     cur_row = cur_row + 2
 
     for st in stash:
-        PrintParameterData(st['ParameterData'])
-        sheet.write(cur_row-1, 14, 'Pop After Address: ' + st['PopAfter'])
-
+        if st['ParameterData']['Address'] not in inserted_stash:
+            PrintParameterData(st['ParameterData'])
+            sheet.write(cur_row - 1, 14, 'Pop After Address: ' + st['PopAfter'])
 
     PrintGroupHeader(header_row)
 
     return
 
+
 '''
  start of data process
 '''
-def ProcessAll():
 
+
+def ProcessAll():
     global xrio_tree, xml_tree
     global config, ktt, ktn, cur_row
+    global primary
 
     # load xml files
     try:
@@ -214,14 +225,27 @@ def ProcessAll():
     # select config section by MLFB code
     MLFBDIGSI = xml_tree.xpath('.//General/GeneralData[@Name="MLFBDIGSI"]/@ID')[0]
     for k in config.keys():
-        if (MLFBDIGSI[0:len(k)]==k):
+        if (MLFBDIGSI[0:len(k)] == k):
             config = config[k]
             break
+
+    # Converrt to primary values rules:
+    # 1. use 'primary' var from command line if it is set;
+    # 2. else use 'convert_to_primary' var from config for this device;
+    # 3. else 'primary' = true
+
+    primary = True
+    if ('convert_to_primary' in config) and (config['convert_to_primary'].lower() == "false"):
+        primary = False
+    if primary_form_cmd is False:
+        primary = False
+
+    extract_parameters_to_rearrange();
 
     # prepare ktt and ktn values, only if primary = true
     if primary:
         v_primary = xml_tree.xpath(config['voltage_primary'])[0]
-        v_primary = float(re.sub(r"[^\d+.]", "", v_primary, 0, 0))*1000 # voltage in kilovolts
+        v_primary = float(re.sub(r"[^\d+.]", "", v_primary, 0, 0)) * 1000  # voltage in kilovolts
         v_second = xml_tree.xpath(config['voltage_second'])[0]
         v_second = float(re.sub(r"[^\d+.]", "", v_second, 0, 0))
         ktn = v_primary / v_second
@@ -238,12 +262,15 @@ def ProcessAll():
     cur_row = cur_row + 1
     # Version
     sheet.merge_range(cur_row, 0, cur_row, 1, "Версия ПО терминала", frm_name)
-    #sheet.merge_range(cur_row, 2, cur_row, 7, xml_tree.xpath('.//General/GeneralData[@Name="Version"]/@ID')[0], frm_name)   # версия ПО из XML файла
-    sheet.merge_range(cur_row, 2, cur_row, 7, xrio_tree.xpath('//XRio/CUSTOM/Block/Block[@Id="GENERALINFO"]/Block/Parameter[@Id="SERIAL_NUMBER"]/Value/text()')[0], frm_name) # версия ПО из XRio файла
+    # sheet.merge_range(cur_row, 2, cur_row, 7, xml_tree.xpath('.//General/GeneralData[@Name="Version"]/@ID')[0], frm_name)   # версия ПО из XML файла
+    sheet.merge_range(cur_row, 2, cur_row, 7, xrio_tree.xpath(
+        '//XRio/CUSTOM/Block/Block[@Id="GENERALINFO"]/Block/Parameter[@Id="SERIAL_NUMBER"]/Value/text()')[0],
+                      frm_name)  # версия ПО из XRio файла
     cur_row = cur_row + 1
     # Topology
     sheet.merge_range(cur_row, 0, cur_row, 1, "Топология", frm_name)
-    sheet.merge_range(cur_row, 2, cur_row, 7, xml_tree.xpath('.//General/GeneralData[@Name="Topology"]/@ID')[0], frm_name)
+    sheet.merge_range(cur_row, 2, cur_row, 7, xml_tree.xpath('.//General/GeneralData[@Name="Topology"]/@ID')[0],
+                      frm_name)
     cur_row = cur_row + 1
     # Self version (crc32)
     sheet.merge_range(cur_row, 0, cur_row, 1, "Версия SiemensPie", frm_name)
@@ -257,7 +284,7 @@ def ProcessAll():
 
     # iss9: if ref address to move parameters is not exists we can still this parameter.
     #  But we can drop this parameters to end of exported list.
-    ProcessStash()
+    print_consumed_params()
 
     return
 
@@ -265,8 +292,9 @@ def ProcessAll():
 '''
  insert header and page stylization 
 '''
-def PageSetup():
 
+
+def PageSetup():
     # page margins, headers and footers
     sheet.set_margins(0.4, 0.4, 0.4, 0.4)
     sheet.set_header("", {'margin': 0.12})
@@ -276,23 +304,27 @@ def PageSetup():
     sheet.fit_to_pages(1, 0)
 
     # text formats
-    global frm_address, frm_name, frm_range, frm_values, frm_desc, frm_h1, frm_h2, frm_h
+    global frm_address, frm_address_h, frm_name, frm_range, frm_values, frm_desc, frm_h1, frm_h2, frm_h
     frm_address = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
+    frm_address_h = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': 'yellow'})
     frm_name = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
     frm_range = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
-    frm_values = book.add_format({'align': 'center', 'valign': 'vcenter','text_wrap': True, 'num_format': '@'})
+    frm_values = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'num_format': '@'})
     frm_desc = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
     frm_desc = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
-    frm_h1 = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'font_size': 13, 'bg_color': '#D9D9D9'})
-    frm_h2 = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#D9D9D9'})
-    frm_h = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#D9D9D9'})
+    frm_h1 = book.add_format(
+        {'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'font_size': 13, 'bg_color': '#D9D9D9'})
+    frm_h2 = book.add_format(
+        {'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#D9D9D9'})
+    frm_h = book.add_format(
+        {'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#D9D9D9'})
 
     # set column width and formats
-    sheet.set_column(0, 0, 6, frm_address)    # address
-    sheet.set_column(1, 1, 23, frm_name)      # name
-    sheet.set_column(2, 2, 30, frm_range)     # range
-    sheet.set_column(3, 6, 8.3, frm_values)   # values in groups
-    sheet.set_column(7, 7, 41.6, frm_desc)    # description
+    sheet.set_column(0, 0, 6, frm_address)  # address
+    sheet.set_column(1, 1, 23, frm_name)  # name
+    sheet.set_column(2, 2, 30, frm_range)  # range
+    sheet.set_column(3, 6, 8.3, frm_values)  # values in groups
+    sheet.set_column(7, 7, 41.6, frm_desc)  # description
 
     return
 
@@ -300,8 +332,9 @@ def PageSetup():
 '''
  insert chapter header
 '''
-def PrintH1(text):
 
+
+def PrintH1(text):
     global cur_row, last_h1_title, frm_h1
 
     # check text to titles_correct
@@ -319,14 +352,14 @@ def PrintH1(text):
 '''
  insert chapter sub-header
 '''
+
+
 def PrintH2(text):
-
     if text != "" and text != last_h1_title:
-
         global cur_row, frm_h2
 
         # check text to titles_correct
-        text = config['titles_correct'].get(last_h1_title+"|"+text, text)
+        text = config['titles_correct'].get(last_h1_title + "|" + text, text)
 
         sheet.merge_range(cur_row, 0, cur_row, 7, text, frm_h2)
         cur_row = cur_row + 1
@@ -337,8 +370,9 @@ def PrintH2(text):
 '''
  insert header with column titles
 '''
-def PrintGroupHeader(at_row):
 
+
+def PrintGroupHeader(at_row):
     sheet.merge_range(at_row, 0, at_row + 1, 0, "№\r\nАдрес", frm_h)
     sheet.merge_range(at_row, 1, at_row + 1, 1, "Наименование уставки", frm_h)
 
@@ -380,12 +414,13 @@ def PrintGroupHeader(at_row):
 '''
  update column header if chapter have electric paramaters 
 '''
-def UpdateColumnHeader(RowNo, addtext_range="", addtext_value=""):
 
+
+def UpdateColumnHeader(RowNo, addtext_range="", addtext_value=""):
     if addtext_range != "":
-        sheet.Cells(RowNo,3).Value = sheet.Cells(RowNo,3).Value + "\r\n("+addtext_range+")"
+        sheet.Cells(RowNo, 3).Value = sheet.Cells(RowNo, 3).Value + "\r\n(" + addtext_range + ")"
     if addtext_value != "":
-        sheet.Cells(RowNo,4).Value = sheet.Cells(RowNo,4).Value + "\r\n("+addtext_value+")"
+        sheet.Cells(RowNo, 4).Value = sheet.Cells(RowNo, 4).Value + "\r\n(" + addtext_value + ")"
     sheet.Rows(RowNo).RowHeight = 32
     return
 
@@ -393,9 +428,10 @@ def UpdateColumnHeader(RowNo, addtext_range="", addtext_value=""):
 '''
  insert group header if needed
 '''
+
+
 # добавление текста групп уставок в шапку таблицы
 def InsertGroupHeader(RowNo):
-
     global cur_row
     global group_has_elec_values
 
@@ -404,7 +440,7 @@ def InsertGroupHeader(RowNo):
 
     # велосипед на велосипеде !!!
     if group_has_elec_values:
-        sheet.Rows(RowNo-1).RowHeight = 32
+        sheet.Rows(RowNo - 1).RowHeight = 32
     else:
         sheet.Rows(RowNo - 1).RowHeight = 22
 
@@ -415,14 +451,14 @@ def InsertGroupHeader(RowNo):
 
     # sheet.Rows.AutoFit()
 
-    sheet.Range("A" + str(RowNo-1) + ":A" + str(RowNo)).Merge()
-    sheet.Range("B" + str(RowNo-1) + ":B" + str(RowNo)).Merge()
-    sheet.Range("C" + str(RowNo-1) + ":C" + str(RowNo)).Merge()
-    sheet.Range("H" + str(RowNo-1) + ":H" + str(RowNo)).Merge()
+    sheet.Range("A" + str(RowNo - 1) + ":A" + str(RowNo)).Merge()
+    sheet.Range("B" + str(RowNo - 1) + ":B" + str(RowNo)).Merge()
+    sheet.Range("C" + str(RowNo - 1) + ":C" + str(RowNo)).Merge()
+    sheet.Range("H" + str(RowNo - 1) + ":H" + str(RowNo)).Merge()
 
-    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).HorizontalAlignment = -4108 # win32.constants.xlCenter
-    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Interior.Pattern = 1 # win32.constants.xlSolid
-    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Interior.ThemeColor = 1 #win32.constants.xlThemeColorDark1
+    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).HorizontalAlignment = -4108  # win32.constants.xlCenter
+    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Interior.Pattern = 1  # win32.constants.xlSolid
+    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Interior.ThemeColor = 1  # win32.constants.xlThemeColorDark1
     sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Interior.TintAndShade = -0.149998474074526
     sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Font.Bold = True
 
@@ -434,15 +470,16 @@ def InsertGroupHeader(RowNo):
 '''
  get parameter info from XRio file
 '''
-def ExtractParameterName(Address):
 
+
+def ExtractParameterName(Address):
     global xrio_tree
 
-    ParameterName = xrio_tree.xpath("//ForeignId[text()='"+Address+"']/parent::*/Name/text()")
+    ParameterName = xrio_tree.xpath("//ForeignId[text()='" + Address + "']/parent::*/Name/text()")
     if (ParameterName != None) and (len(ParameterName) > 0):
         ParameterName = str(ParameterName[0])
     else:
-        ParameterName= ""
+        ParameterName = ""
 
     return ParameterName
 
@@ -450,11 +487,12 @@ def ExtractParameterName(Address):
 '''
  get parameter precision from XRio file
 '''
-def ExtractParameterPrecision(Address):
 
+
+def ExtractParameterPrecision(Address):
     global xrio_tree
 
-    ParameterPrecision = xrio_tree.xpath("//ForeignId[text()='"+Address+"']/parent::*/Unit")
+    ParameterPrecision = xrio_tree.xpath("//ForeignId[text()='" + Address + "']/parent::*/Unit")
     if (ParameterPrecision != None) and (len(ParameterPrecision) > 0):
         return int(ParameterPrecision[0].attrib['DecimalPlaces'])
     else:
@@ -464,8 +502,9 @@ def ExtractParameterPrecision(Address):
 '''
  convert electrical value to primary
 '''
-def ConvertToPrimary(Address, Value, Dimension, SecondaryPrecision):
 
+
+def ConvertToPrimary(Address, Value, Dimension, SecondaryPrecision):
     # do not convert special addresses
     if (Address in config['params_without_convert']):
         return "%g" % float(Value) + " " + Dimension
@@ -479,19 +518,19 @@ def ConvertToPrimary(Address, Value, Dimension, SecondaryPrecision):
         if (Dimension == "А"):
             rez = "%g" % round(Value * ktt, SecondaryPrecision - 1) + " " + Dimension
             group_has_elec_values = True
-        elif (Dimension=="В"):
+        elif (Dimension == "В"):
             rez = "%g" % (Value * ktn / 1000) + " кВ"
             group_has_elec_values = True
-        elif (Dimension=="Ом"): # 2018-03-23: в 7SA в первичных 3 знака после запятой, в 7SD - два, везде делаем 3
+        elif (Dimension == "Ом"):  # 2018-03-23: в 7SA в первичных 3 знака после запятой, в 7SD - два, везде делаем 3
             rez = "%g" % round(Value * ktn / ktt, SecondaryPrecision) + " " + Dimension
             group_has_elec_values = True
-        elif (Dimension=="Ом / км"):
+        elif (Dimension == "Ом / км"):
             rez = "%g" % round(Value * ktn / ktt, SecondaryPrecision - 1) + " " + Dimension
             group_has_elec_values = True
-        elif (Dimension=="ВА"):
+        elif (Dimension == "ВА"):
             rez = "%g" % round(Value * ktn * ktt / 1000000, SecondaryPrecision + 1) + " МВА"
             group_has_elec_values = True
-        elif (Dimension=="мкФ/км"):
+        elif (Dimension == "мкФ/км"):
             rez = "%g" % round(Value * ktt / ktn, SecondaryPrecision + 1) + " " + Dimension
             group_has_elec_values = True
         else:
@@ -503,14 +542,15 @@ def ConvertToPrimary(Address, Value, Dimension, SecondaryPrecision):
 '''
  extract parameter values in all groups of parameters
 '''
-def ExtractParameterValues(Parameter):
 
+
+def ExtractParameterValues(Parameter):
     ParameterAddr = Parameter.attrib['DAdr']
     ParameterType = Parameter.attrib['Type']
 
     global group_has_group_values
 
-    ParameterValue  = Parameter.find(r"Value")
+    ParameterValue = Parameter.find(r"Value")
     ParameterValueA = Parameter.find(r"Value[@SettingGroup='A']")
     ParameterValueB = Parameter.find(r"Value[@SettingGroup='B']")
     ParameterValueC = Parameter.find(r"Value[@SettingGroup='C']")
@@ -529,13 +569,13 @@ def ExtractParameterValues(Parameter):
         group_has_group_values = True
 
     if ParameterType == "Txt":
-        ParameterValueA = Parameter.find(r"Comment[@Number='"+ParameterValueA+"']").attrib['Name']
-        ParameterValueB = Parameter.find(r"Comment[@Number='"+ParameterValueB+"']").attrib['Name']
-        ParameterValueC = Parameter.find(r"Comment[@Number='"+ParameterValueC+"']").attrib['Name']
-        ParameterValueD = Parameter.find(r"Comment[@Number='"+ParameterValueD+"']").attrib['Name']
+        ParameterValueA = Parameter.find(r"Comment[@Number='" + ParameterValueA + "']").attrib['Name']
+        ParameterValueB = Parameter.find(r"Comment[@Number='" + ParameterValueB + "']").attrib['Name']
+        ParameterValueC = Parameter.find(r"Comment[@Number='" + ParameterValueC + "']").attrib['Name']
+        ParameterValueD = Parameter.find(r"Comment[@Number='" + ParameterValueD + "']").attrib['Name']
     else:
         Dimension = Parameter.find('Comment[@Dimension]')
-        if Dimension!=None:
+        if Dimension != None:
             Dimension = Dimension.attrib.get('Dimension')
         else:
             Dimension = ''
@@ -549,6 +589,9 @@ def ExtractParameterValues(Parameter):
             ParameterValueD = ConvertToPrimary(ParameterAddr, ParameterValueD, Dimension, SecondaryPrecision)
         else:
             # if value is "oo" - do not display dimension
+            # call ConvertToPrimary for calc 'group_has_elec_values' variable
+            ConvertToPrimary(ParameterAddr, ParameterValueA, Dimension, ExtractParameterPrecision(ParameterAddr))
+
             ParameterValueA = ParameterValueA if ParameterValueA == "oo" else ParameterValueA + " " + Dimension
             ParameterValueB = ParameterValueB if ParameterValueB == "oo" else ParameterValueB + " " + Dimension
             ParameterValueC = ParameterValueC if ParameterValueC == "oo" else ParameterValueC + " " + Dimension
@@ -560,8 +603,9 @@ def ExtractParameterValues(Parameter):
 '''
  extract parameter range
 '''
-def ExtractParameterRange(Parameter):
 
+
+def ExtractParameterRange(Parameter):
     ParameterType = Parameter.attrib['Type']
     RangeText = ''
     Precision = 0
@@ -575,15 +619,15 @@ def ExtractParameterRange(Parameter):
     elif ParameterType == "Dec":
         Comment = Parameter.find('Comment')
         Dimension = Comment.attrib.get('Dimension')
-        if Dimension==None:
+        if Dimension == None:
             Dimension = ''
         MinValue = Comment.attrib['MinValue']
         MaxValue = Comment.attrib['MaxValue']
         Precision = len(MinValue) - MinValue.rfind(".")
-        if Precision == len(MinValue)+1:
+        if Precision == len(MinValue) + 1:
             Precision = 0
         AdditionalValidValues = Comment.attrib.get('AdditionalValidValues')
-        if AdditionalValidValues==None:
+        if AdditionalValidValues == None:
             RangeText = MinValue + " … " + MaxValue + " " + Dimension
         else:
             RangeText = MinValue + " … " + MaxValue + " " + Dimension + "; " + AdditionalValidValues
@@ -594,12 +638,17 @@ def ExtractParameterRange(Parameter):
 '''
  paste parameter info to output excel sheet
 '''
-def PrintParameterData(ParameterData):
 
-    global cur_row
+
+def PrintParameterData(ParameterData, highlight=False):
+
+    global cur_row, last_printed_address
 
     # write data from config then correct it by "params_correct" config section
-    sheet.write(cur_row, 0, ParameterData['Address'], frm_address)
+    if highlight:
+        sheet.write(cur_row, 0, ParameterData['Address'], frm_address_h)
+    else:
+        sheet.write(cur_row, 0, ParameterData['Address'], frm_address)
     sheet.write(cur_row, 1, ParameterData['Name'], frm_name)
     sheet.write(cur_row, 2, ParameterData['Range'], frm_range)
 
@@ -646,11 +695,12 @@ def PrintParameterData(ParameterData):
         sheet.write(cur_row, int(col_no), col_val)
 
     cur_row = cur_row + 1
+    last_printed_address = ParameterData['Address']
 
     # insert formula with comments
     # !!!
-    #sheet.Cells(currow, 9).FormulaR1C1 = '=IFERROR(IF(TRIM(RC[-8])<>"",INDEX(\'\\\\Prim-fs-serv\\rdu\СРЗА\\Уставки\\РАСЧЕТЫ УСТАВОК\\[!!!Siemens, общие комментарии.xlsx]7SD\'!C1:C2,MATCH(RC[-8],\'\\\\Prim-fs-serv\\rdu\\СРЗА\\Уставки\\РАСЧЕТЫ УСТАВОК\\[!!!Siemens, общие комментарии.xlsx]7SD\'!C1,0),2),""),"")'
-    #sheet.Cells(currow, 9).VerticalAlignment = -4108 # xlCenter
+    # sheet.Cells(currow, 9).FormulaR1C1 = '=IFERROR(IF(TRIM(RC[-8])<>"",INDEX(\'\\\\Prim-fs-serv\\rdu\СРЗА\\Уставки\\РАСЧЕТЫ УСТАВОК\\[!!!Siemens, общие комментарии.xlsx]7SD\'!C1:C2,MATCH(RC[-8],\'\\\\Prim-fs-serv\\rdu\\СРЗА\\Уставки\\РАСЧЕТЫ УСТАВОК\\[!!!Siemens, общие комментарии.xlsx]7SD\'!C1,0),2),""),"")'
+    # sheet.Cells(currow, 9).VerticalAlignment = -4108 # xlCenter
 
     pass
 
@@ -658,8 +708,9 @@ def PrintParameterData(ParameterData):
 '''
  stash parameters for rearrange, push
 '''
-def StashParametersPush(ParameterData):
 
+
+def StashParametersPush(ParameterData):
     global stash
 
     PopAfter = config['params_to_rearrange'].get(ParameterData['Address'], 0)
@@ -672,15 +723,17 @@ def StashParametersPush(ParameterData):
         })
         return True
 
-'''
- stash parameters for rearrange, pop
-'''
-def StashParametersPop(ParameterAddress):
 
+'''
+ stash parameters for rearrange, pop (for stashed parameter with PopAfter number)
+'''
+
+
+def StashParametersPop(ParameterAddress):
     global stash
 
     for i in range(len(stash)):
-        if (stash[i]['PopAfter'] == ParameterAddress):
+        if (stash[i]['PopAfter'] == ParameterAddress):  # past stashed parameter with PopAfter number
             ParameterData = stash[i]['ParameterData']
             stash.pop(i)
             PrintParameterData(ParameterData)
@@ -690,35 +743,95 @@ def StashParametersPop(ParameterAddress):
 
 
 '''
- precess one parameter / address
+ stash parameters for rearrange, pop (for stashed parameter with PopAfter = "auto")
+ past before current parameter
 '''
-def ProcessParameter(Parameter):
 
-    ParameterAddress = Parameter.attrib['DAdr']
 
-    print(ParameterAddress)
+def StashParametersPopAuto(ParameterAddress):
+    global stash
 
-    ParameterName = ExtractParameterName(ParameterAddress)
-    ParameterDescription = Parameter.attrib['Name']
+    for i in range(len(stash)):
+        if ((stash[i]['PopAfter'].lower() == 'auto') &  # auto rearrange
+                (int(re.sub('[^\d]', '', ParameterAddress)) > int(
+                    re.sub('[^\d]', '', stash[i]['ParameterData']['Address'])))):
+            ParameterData = stash[i]['ParameterData']
+            stash.pop(i)
+            PrintParameterData(ParameterData)
+            return ParameterData['Address']
 
-    Range = ExtractParameterRange(Parameter)
-    ParameterRange = Range[0]
-    ParameterValues = ExtractParameterValues(Parameter)
+    return False
 
-    ParameterData = {
-        'Address': ParameterAddress,
-        'Name': ParameterName,
-        'Range': ParameterRange,
-        'Values': ParameterValues,
-        'Description': ParameterDescription,
+
+def insert_parameter(parameter_data, rearrange=False):
+    """ precess one parameter / address
+    """
+
+    global stash
+
+    # print current address if this address is absent in stash
+    if ((not (any(p['ParameterData']['Address'] == parameter_data['Address'] for p in stash))) |
+        (rearrange)):
+        PrintParameterData(parameter_data, rearrange)
+
+        # rearrange: Num (post after current address)
+        for i in range(len(stash)):
+            if stash[i]['PopAfter'] == parameter_data['Address']:
+                insert_parameter(stash[i]['ParameterData'], True)
+                stash[i]['Inserted'] = True
+
+    return
+
+def process_parameter(parameter):
+    """ precess one parameter / address
+    """
+
+    address = parameter.attrib['DAdr']
+    parameter_data = {
+        'Address': address,
+        'Name': ExtractParameterName(address),
+        'Range': ExtractParameterRange(parameter)[0],
+        'Values': ExtractParameterValues(parameter),
+        'Description': parameter.attrib['Name'],
     }
 
-    # адреса, которые нужно переместить, если параметр не был спрятан - выведем его в Excel
-    if (StashParametersPush(ParameterData) == False):
-        PrintParameterData(ParameterData)
-        # вставка сохраненных параметров
-        while (ParameterAddress != False):
-            ParameterAddress = StashParametersPop(ParameterAddress)
+    print(address)
+
+    insert_parameter(parameter_data)
+
+    return
+
+    # print parameter to report and stashed params for rearrange if it need
+    global stash
+    global inserted_stash
+
+    # rearrange: auto (post before current address)
+    need_loop = True
+    while need_loop:
+        need_loop = False
+        for i in range(len(stash)):
+            if (stash[i]['PopAfter'].lower() == 'auto') & \
+                    (int(re.sub('[^\d]', '', stash[i]['ParameterData']['Address'])) <
+                     int(re.sub('[^\d]', '', address))) & \
+                    (int(re.sub('[^\d]', '', stash[i]['ParameterData']['Address'])) >
+                     int(re.sub('[^\d]', '', last_printed_address))) & \
+                    (stash[i]['ParameterData']['Address'] not in inserted_stash) & \
+                    (not (any(p['ParameterData']['Address'] == address for p in stash))):
+
+                PrintParameterData(stash[i]['ParameterData'], True)
+                inserted_stash.append(stash[i]['ParameterData']['Address'])
+                need_loop = True
+
+
+    # print current address parameter
+    if not (any(p['ParameterData']['Address'] == address for p in stash)):
+        PrintParameterData(parameter_data)
+
+    # rearrange: Num (post after current address)
+    for i in range(len(stash)):
+        if stash[i]['PopAfter'] == address:
+            PrintParameterData(stash[i]['ParameterData'], True)
+            inserted_stash.append(stash[i]['ParameterData']['Address'])
 
     return
 
@@ -726,8 +839,8 @@ def ProcessParameter(Parameter):
 '''
  process settings page
 '''
-def ProcessSettingPage(SettingPage):
 
+def ProcessSettingPage(SettingPage):
     global cur_row, group_has_elec_values, group_has_group_values
 
     SettingPageName = SettingPage.attrib['Name']
@@ -741,7 +854,7 @@ def ProcessSettingPage(SettingPage):
     cur_row = cur_row + 2
 
     for Parameter in Parameters:
-        ProcessParameter(Parameter)
+        process_parameter(Parameter)
 
     PrintGroupHeader(header_row)
 
@@ -751,8 +864,9 @@ def ProcessSettingPage(SettingPage):
 '''
  process function group
 '''
-def ProcessFunctionGroup(FunctionGroup):
 
+
+def ProcessFunctionGroup(FunctionGroup):
     FunctionGroupName = FunctionGroup.attrib['Name']
     PrintH1(FunctionGroupName)
     SettingPages = FunctionGroup.findall("SettingPage")
@@ -762,11 +876,55 @@ def ProcessFunctionGroup(FunctionGroup):
     return
 
 
+def dispatch_request(self):
+    """Subclasses have to override this method to implement the
+    actual view function code.  This method is called with all
+    the arguments from the URL rule.
+    """
+
+    return
+
+
+def extract_parameters_to_rearrange():
+    """ process all XML file and extract params for rearrange to stash list
+    """
+
+    global xrio_tree, xml_tree
+    global config
+    global stash
+
+    all_params = xml_tree.findall('Settings//Parameter')
+    for p in all_params:
+
+        parameter_data = {
+            'Address': p.attrib['DAdr'],
+            'Name': ExtractParameterName(p.attrib['DAdr']),
+            'Range': ExtractParameterRange(p)[0],
+            'Values': ExtractParameterValues(p),
+            'Description': p.attrib['Name'],
+        }
+
+        # pop_after may be "auto" or parameter address
+        pop_after = config['params_to_rearrange'].get(parameter_data['Address'], 0)
+        if pop_after != 0:
+            stash.append({
+                'PopAfter': pop_after,
+                'ParameterData': parameter_data,
+                'Inserted': False
+            })
+
+    # sort stash list for insert in normal order
+    stash.sort(key=lambda p: p['ParameterData']['Address'])
+
+    return
+
+
 '''
  register .xrio extention for siemens py 
 '''
-def RegisterXrioExt():
 
+
+def RegisterXrioExt():
     if getattr(sys, 'frozen', False):
         exe_path = sys.executable
         ico_path = os.path.join(os.path.dirname(sys.executable), 'doc.ico')
@@ -793,6 +951,7 @@ def RegisterXrioExt():
     winreg.CloseKey(key_sh)
 
     return
+
 
 RegisterXrioExt()
 ProcessCommandLine()
