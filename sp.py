@@ -240,8 +240,6 @@ def ProcessAll():
     if primary_form_cmd is False:
         primary = False
 
-    extract_parameters_to_rearrange();
-
     # prepare ktt and ktn values, only if primary = true
     if primary:
         v_primary = xml_tree.xpath(config['voltage_primary'])[0]
@@ -254,6 +252,8 @@ def ProcessAll():
         c_second = xml_tree.xpath(config['current_second'])[0]
         c_second = int(re.sub(r"[^\d+\.]", "", c_second, 0, 0))
         ktt = c_primary / c_second
+
+    extract_parameters_to_rearrange();
 
     # paste overview info about terminal
     # MLFB code
@@ -313,11 +313,11 @@ def PageSetup():
     frm_desc = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
     frm_desc = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
     frm_h1 = book.add_format(
-        {'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'font_size': 13, 'bg_color': '#D9D9D9'})
+        {'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'font_size': 13, 'bg_color': '#EEECE1'})
     frm_h2 = book.add_format(
-        {'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#D9D9D9'})
+        {'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#EEECE1'})
     frm_h = book.add_format(
-        {'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#D9D9D9'})
+        {'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#EEECE1'})
 
     # set column width and formats
     sheet.set_column(0, 0, 6, frm_address)  # address
@@ -373,24 +373,24 @@ def PrintH2(text):
 
 
 def PrintGroupHeader(at_row):
-    sheet.merge_range(at_row, 0, at_row + 1, 0, "№\r\nАдрес", frm_h)
-    sheet.merge_range(at_row, 1, at_row + 1, 1, "Наименование уставки", frm_h)
+    sheet.merge_range(at_row, 0, at_row + 1, 0, "Адрес", frm_h)
+    sheet.merge_range(at_row, 1, at_row + 1, 1, "Параметр", frm_h)
 
     if group_has_elec_values:
-        sheet.write(at_row, 2, "Диапазон уставок", frm_h)
+        sheet.write(at_row, 2, "Значение/диапазон/шаг", frm_h)
         sheet.write(at_row + 1, 2, "(вторичные величины)", frm_h)
     else:
-        sheet.merge_range(at_row, 2, at_row + 1, 2, "Диапазон уставок", frm_h)
+        sheet.merge_range(at_row, 2, at_row + 1, 2, "Значение/диапазон/шаг", frm_h)
 
     if group_has_group_values:
         if group_has_elec_values:
             sheet.set_row(at_row, 30)
             if primary:
-                sheet.merge_range(at_row, 3, at_row, 6, "Заданная уставка\r\n(первичные величины)", frm_h)
+                sheet.merge_range(at_row, 3, at_row, 6, "Задаваемый параметр\r\n(первичные величины)", frm_h)
             else:
-                sheet.merge_range(at_row, 3, at_row, 6, "Заданная уставка\r\n(вторичные величины)", frm_h)
+                sheet.merge_range(at_row, 3, at_row, 6, "Задаваемый параметр\r\n(вторичные величины)", frm_h)
         else:
-            sheet.merge_range(at_row, 3, at_row, 6, "Заданная уставка", frm_h)
+            sheet.merge_range(at_row, 3, at_row, 6, "Задаваемый параметр", frm_h)
         sheet.write(at_row + 1, 3, "Группа A", frm_h)
         sheet.write(at_row + 1, 4, "Группа B", frm_h)
         sheet.write(at_row + 1, 5, "Группа C", frm_h)
@@ -398,15 +398,15 @@ def PrintGroupHeader(at_row):
     else:
         if group_has_elec_values:
             if primary:
-                sheet.merge_range(at_row, 3, at_row, 6, "Заданная уставка", frm_h)
+                sheet.merge_range(at_row, 3, at_row, 6, "Задаваемый параметр", frm_h)
                 sheet.merge_range(at_row + 1, 3, at_row + 1, 6, "(первичные величины)", frm_h)
             else:
-                sheet.merge_range(at_row, 3, at_row, 6, "Заданная уставка\r\n(вторичные величины)", frm_h)
+                sheet.merge_range(at_row, 3, at_row, 6, "Задаваемый параметр\r\n(вторичные величины)", frm_h)
                 sheet.merge_range(at_row + 1, 3, at_row + 1, 6, "(вторичные величины)", frm_h)
         else:
-            sheet.merge_range(at_row, 3, at_row + 1, 6, "Заданная уставка", frm_h)
+            sheet.merge_range(at_row, 3, at_row + 1, 6, "Задаваемый параметр", frm_h)
 
-    sheet.merge_range(at_row, 7, at_row + 1, 7, "Описание", frm_h)
+    sheet.merge_range(at_row, 7, at_row + 1, 7, "Комментарий", frm_h)
 
     return
 
