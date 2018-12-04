@@ -242,10 +242,11 @@ def ProcessAll():
 
     # prepare ktt and ktn values, only if primary = true
     if primary:
-        v_primary = xml_tree.xpath(config['voltage_primary'])[0]
-        v_primary = float(re.sub(r"[^\d+.]", "", v_primary, 0, 0)) * 1000  # voltage in kilovolts
-        v_second = xml_tree.xpath(config['voltage_second'])[0]
-        v_second = float(re.sub(r"[^\d+.]", "", v_second, 0, 0))
+        # 7SD52 may not include Set of Step Protections and may not contain voltage_primary parameters
+        v_primary = xml_tree.xpath(config['voltage_primary'])
+        v_primary = 1 if len(v_primary) == 0 else float(re.sub(r"[^\d+.]", "", v_primary[0], 0, 0)) * 1000  # voltage in kilovolts
+        v_second = xml_tree.xpath(config['voltage_second'])
+        v_second = 1 if len(v_second) == 0 else float(re.sub(r"[^\d+.]", "", v_second[0], 0, 0))
         ktn = v_primary / v_second
         c_primary = xml_tree.xpath(config['current_primary'])[0]
         c_primary = int(re.sub(r"[^\d+\.]", "", c_primary, 0, 0))

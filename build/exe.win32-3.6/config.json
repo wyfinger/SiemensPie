@@ -105,12 +105,13 @@
     "voltage_second" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0203\"]/Value/text()",
     "current_primary" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0204\"]/Value/text()",
     "current_second" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0205\"]/Comment[@Number=//Parameter[@DAdr=\"0205\"]/Value/text()]/@Name",
-    "params_without_convert" : ["0202", "0203", "0204", "0205", "0217", "0218", "1101", "1102"],
+    "params_without_convert" : ["0202", "0203", "0204", "0205", "0207", "0208", "0217", "0218", "1101", "1102"],
     "params_to_rearrange" : {
     },
     "params_correct" : {
     },
     "titles_correct" : {
+		"8109"  : [1, "Быстр.Контр ∑ i"]
     }
   },
   "6MD664" : {
