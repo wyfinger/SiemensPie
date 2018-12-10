@@ -600,7 +600,9 @@ def ExtractParameterValues(Parameter):
             ParameterValueC = ParameterValueC if ParameterValueC == "oo" else ParameterValueC + " " + Dimension
             ParameterValueD = ParameterValueD if ParameterValueD == "oo" else ParameterValueD + " " + Dimension
 
-    return [ParameterValueA, ParameterValueB, ParameterValueC, ParameterValueD]
+
+
+    return [ParameterValueA.strip(), ParameterValueB.strip(), ParameterValueC.strip(), ParameterValueD.strip()]
 
 
 '''
@@ -930,7 +932,7 @@ def extract_parameters_to_rearrange():
 
 
 def RegisterXrioExt():
-    
+
     if getattr(sys, 'frozen', False):
         exe_path = sys.executable
         ico_path = os.path.join(os.path.dirname(sys.executable), 'doc.ico')
