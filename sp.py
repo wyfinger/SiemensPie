@@ -31,7 +31,8 @@ ktn = 1
 book = Workbook
 sheet = Worksheet
 frm_address = Format
-frm_address_h = Format
+frm_address_high = Format
+frm_address_hide = Format
 frm_name = Format
 frm_range = Format
 frm_values = Format
@@ -305,9 +306,10 @@ def PageSetup():
     sheet.fit_to_pages(1, 0)
 
     # text formats
-    global frm_address, frm_address_h, frm_name, frm_range, frm_values, frm_desc, frm_h1, frm_h2, frm_h
+    global frm_address, frm_address_high, frm_address_hide, frm_name, frm_range, frm_values, frm_desc, frm_h1, frm_h2, frm_h
     frm_address = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
-    frm_address_h = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': 'yellow'})
+    frm_address_high = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': 'yellow'})
+    frm_address_hide = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'color': 'white', 'font_size': '3'})
     frm_name = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
     frm_range = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
     frm_values = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'num_format': '@'})
@@ -646,8 +648,10 @@ def PrintParameterData(ParameterData, highlight=False):
     global cur_row, last_printed_address
 
     # write data from config then correct it by "params_correct" config section
-    if highlight:
-        sheet.write(cur_row, 0, ParameterData['Address'], frm_address_h)
+    if len(ParameterData['Address']) > 6:
+        sheet.write(cur_row, 0, ParameterData['Address'], frm_address_hide)
+    elif highlight:
+        sheet.write(cur_row, 0, ParameterData['Address'], frm_address_high)
     else:
         sheet.write(cur_row, 0, ParameterData['Address'], frm_address)
     sheet.write(cur_row, 1, ParameterData['Name'], frm_name)
@@ -926,6 +930,7 @@ def extract_parameters_to_rearrange():
 
 
 def RegisterXrioExt():
+    
     if getattr(sys, 'frozen', False):
         exe_path = sys.executable
         ico_path = os.path.join(os.path.dirname(sys.executable), 'doc.ico')
