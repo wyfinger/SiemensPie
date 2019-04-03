@@ -509,8 +509,8 @@ def ExtractParameterPrecision(Address):
 
 def ConvertToPrimary(Address, Value, Dimension, SecondaryPrecision):
     # do not convert special addresses
-    if (Address in config['params_without_convert']):
-        return "%g" % float(Value) + " " + Dimension
+    if (config['params_without_convert'] == 'all') | (Address in config['params_without_convert']):
+        return (Value + " " + Dimension).strip()
 
     global group_has_elec_values
 
