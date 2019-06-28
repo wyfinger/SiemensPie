@@ -509,8 +509,6 @@ def ExtractParameterPrecision(Address):
 
 def ConvertToPrimary(Address, Value, Dimension, SecondaryPrecision):
     # do not convert special addresses
-    if (config['params_without_convert'] == 'all') | (Address in config['params_without_convert']):
-        return (Value + " " + Dimension).strip()
 
     global group_has_elec_values
 
@@ -584,23 +582,20 @@ def ExtractParameterValues(Parameter):
             Dimension = ''
 
         # convert to primary if needed
-        if primary:
+        if (primary == False) | (config['params_without_convert'] == 'all') | ~(ParameterAddr in config['params_without_convert']):
+            # if value is "oo" - do not display dimension
+            # call ConvertToPrimary for calc 'group_has_elec_values' variable
+            ConvertToPrimary(ParameterAddr, ParameterValueA, Dimension, ExtractParameterPrecision(ParameterAddr))
+            ParameterValueA = ParameterValueA if ParameterValueA == "oo" else ParameterValueA + " " + Dimension
+            ParameterValueB = ParameterValueB if ParameterValueB == "oo" else ParameterValueB + " " + Dimension
+            ParameterValueC = ParameterValueC if ParameterValueC == "oo" else ParameterValueC + " " + Dimension
+            ParameterValueD = ParameterValueD if ParameterValueD == "oo" else ParameterValueD + " " + Dimension
+        else:
             SecondaryPrecision = ExtractParameterPrecision(ParameterAddr)
             ParameterValueA = ConvertToPrimary(ParameterAddr, ParameterValueA, Dimension, SecondaryPrecision)
             ParameterValueB = ConvertToPrimary(ParameterAddr, ParameterValueB, Dimension, SecondaryPrecision)
             ParameterValueC = ConvertToPrimary(ParameterAddr, ParameterValueC, Dimension, SecondaryPrecision)
             ParameterValueD = ConvertToPrimary(ParameterAddr, ParameterValueD, Dimension, SecondaryPrecision)
-        else:
-            # if value is "oo" - do not display dimension
-            # call ConvertToPrimary for calc 'group_has_elec_values' variable
-            ConvertToPrimary(ParameterAddr, ParameterValueA, Dimension, ExtractParameterPrecision(ParameterAddr))
-
-            ParameterValueA = ParameterValueA if ParameterValueA == "oo" else ParameterValueA + " " + Dimension
-            ParameterValueB = ParameterValueB if ParameterValueB == "oo" else ParameterValueB + " " + Dimension
-            ParameterValueC = ParameterValueC if ParameterValueC == "oo" else ParameterValueC + " " + Dimension
-            ParameterValueD = ParameterValueD if ParameterValueD == "oo" else ParameterValueD + " " + Dimension
-
-
 
     return [ParameterValueA.strip(), ParameterValueB.strip(), ParameterValueC.strip(), ParameterValueD.strip()]
 
