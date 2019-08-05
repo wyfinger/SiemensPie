@@ -582,7 +582,7 @@ def ExtractParameterValues(Parameter):
             Dimension = ''
 
         # convert to primary if needed
-        if (primary == False) | (config['params_without_convert'] == 'all') | ~(ParameterAddr in config['params_without_convert']):
+        if (primary == False) | (config['params_without_convert'] == 'all') | (ParameterAddr in config['params_without_convert']):
             # if value is "oo" - do not display dimension
             # call ConvertToPrimary for calc 'group_has_elec_values' variable
             ConvertToPrimary(ParameterAddr, ParameterValueA, Dimension, ExtractParameterPrecision(ParameterAddr))
