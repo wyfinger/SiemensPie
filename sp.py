@@ -17,29 +17,21 @@ from xlsxwriter.format import Format
 
 import winreg
 
-__author__ = 'prim_miv'
+__author__ = 'wyfinger'
+__version__ = '2020-01-28'
 
 xriofile = ""
 xmlfile = ""
-primary_form_cmd = False
-primary = True
-config = {}
+config_tree = {}
 xrio_tree = None
 xml_tree = None
+primary = True
 ktt = 1
 ktn = 1
 book = Workbook
 sheet = Worksheet
-frm_address = Format
-frm_address_high = Format
-frm_address_hide = Format
-frm_name = Format
-frm_range = Format
-frm_values = Format
-frm_desc = Format
-frm_h1 = Format
-frm_h2 = Format
-frm_h = Format
+cell_formats = {}
+
 cur_row = 0
 group_has_elec_values = False
 group_has_group_values = False
@@ -48,35 +40,35 @@ inserted_stash = []
 last_printed_address = '0'
 last_h1_title = ""
 
-
 # TODO: уставка 7137 в 7SJ не выводится в Excel, хотя в конфиге, если посмотреть в Digsi, есть.
-# TODO: уставка 1124 в 7SD, описание "Центральная фаза", мы обычно дописываем "... присоединения", поэтому
-#      нужен механизм правки через конфиг не только имени уставки, но и других (любых) столбцов бланка.
 
 
-# print small help tip to console, for use in error in parameters
-def PrintSmallHelp():
-    print("Use: sp.exe [-p] [-c] [xml or xrio file] [xml or xrio file]")
-    print("  -p  - convert electrical values to primary")
-    print("  -c  - path to config file (Json)")
+'''
+ print small help tip to console, for use in error in parameters
+'''
+def print_small_help():
+
+    print("Use: sp.exe [-c] [xml or xrio file] [xml or xrio file]")
+    print("  -c  - path to config.json file")
     print("  set one (xml or xrio) file if they have the same name")
+    print("")
 
     return
 
 
 '''
- read config Json
+ read config file (Json)
 '''
+def read_config(config_path):
 
-
-def ReadConfig(config_path):
     try:
-        # print('Reading config from: ' + config_path)
+        # print('Reading config_tree from: ' + config_path)
         with codecs.open(config_path, 'r', 'utf-8') as param_file:
             return json.load(param_file)
     except:
-        print("Error at read config file.\n")
-        PrintSmallHelp()
+        print("Error at read config.json file.\n")
+        print_small_help()
+        time.sleep(5)
         sys.exit()
 
     return
@@ -85,10 +77,9 @@ def ReadConfig(config_path):
 '''
  command line parameter analyses
 '''
+def process_command_line():
 
-
-def ProcessCommandLine():
-    global xriofile, xmlfile, primary_form_cmd, config
+    global xriofile, xmlfile, config_tree
 
     if getattr(sys, 'frozen', False):
         config_path = os.path.join(os.path.dirname(sys.executable), "config.json")
@@ -96,44 +87,42 @@ def ProcessCommandLine():
         config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "config.json")
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--primary', nargs='?', default='true', help='Convert values to a prymary')
     parser.add_argument('-c', '--config', nargs='?', default=config_path, help='Json file with parameters')
     parser.add_argument('file1', nargs='?')
     parser.add_argument('file2', nargs='?')
     namespace = parser.parse_args()
 
-    primary_form_cmd = (namespace.primary != 'false')
-
     # find .xml and .xrio files
-    if (namespace.file1 != None):
+    if namespace.file1 is not None:
         file1name, file1extension = os.path.splitext(namespace.file1)
-        if (file1extension.lower() == '.xrio'):
+        if file1extension.lower() == '.xrio':
             xriofile = namespace.file1
         if (file1extension.lower() == '.xml'):
             xmlfile = namespace.file1
-    if (namespace.file2 != None):
+    if namespace.file2 is not None:
         file2name, file2extension = os.path.splitext(namespace.file2)
-        if (file2extension.lower() == '.xrio'):
+        if file2extension.lower() == '.xrio':
             xriofile = namespace.file2
-        if (file2extension.lower() == '.xml'):
+        if file2extension.lower() == '.xml':
             xmlfile = namespace.file2
 
     if (xriofile == "") & (xmlfile != ""):
         xriofile = os.path.splitext(xmlfile)[0] + '.xrio'
-        if (os.path.isfile(xriofile) == False):
+        if not os.path.isfile(xriofile):
             xriofile = ""
     if (xriofile != "") & (xmlfile == ""):
         xmlfile = os.path.splitext(xriofile)[0] + '.xml'
-        if (os.path.isfile(xmlfile) == False):
+        if not os.path.isfile(xmlfile):
             xmlfile = ""
 
-    if namespace.config != None:
+    if namespace.config is not None:
         config_path = namespace.config
-    config = ReadConfig(config_path)
+    config_tree = read_config(config_path)
 
     if (xmlfile == "") | (xriofile == ""):
         print("Error. XML or XRio file is not exists.")
-        PrintSmallHelp()
+        print_small_help()
+        time.sleep(5)
         sys.exit()
 
     print("XML: " + xmlfile)
@@ -142,23 +131,9 @@ def ProcessCommandLine():
     return
 
 
-'''
- calculate crc32 of this file
-'''
-
-
-def SelfCRC32():
-    buf = open(sys.argv[0], 'rb').read()
-    buf = (binascii.crc32(buf) & 0xFFFFFFFF)
-    return "%08X" % buf
-
-
-'''
- create outpot excel file
-'''
-
-
-def CreateOutputFile():
+def create_output_file():
+    """create output excel file
+    """
     global book, sheet
 
     try:
@@ -167,6 +142,7 @@ def CreateOutputFile():
         sheet = book.add_worksheet()
     except:
         print("Error at create Excel file to output.\n")
+        time.sleep(5)
         sys.exit()
 
     return
@@ -175,8 +151,8 @@ def CreateOutputFile():
 '''
  process stash scrap
 '''
-
 def print_consumed_params():
+
     global stash, cur_row
     global group_has_elec_values, group_has_group_values
 
@@ -187,7 +163,7 @@ def print_consumed_params():
 
     cur_row = cur_row + 3
 
-    PrintH1("Потерянные уставки")
+    print_h1("Потерянные уставки")
 
     group_has_elec_values = False
     group_has_group_values = False
@@ -196,10 +172,10 @@ def print_consumed_params():
 
     for st in stash:
         if st['ParameterData']['Address'] not in inserted_stash:
-            PrintParameterData(st['ParameterData'])
+            print_parameter_data(st['ParameterData'])
             sheet.write(cur_row - 1, 14, 'Pop After Address: ' + st['PopAfter'])
 
-    PrintGroupHeader(header_row)
+    #print_group_header(header_row)
 
     return
 
@@ -207,12 +183,10 @@ def print_consumed_params():
 '''
  start of data process
 '''
+def process_all():
 
-
-def ProcessAll():
     global xrio_tree, xml_tree
-    global config, ktt, ktn, cur_row
-    global primary
+    global config_tree, primary, ktt, ktn, cur_row
 
     # load xml files
     try:
@@ -220,69 +194,64 @@ def ProcessAll():
         xml_tree = lxml.parse(xmlfile)
     except:
         print("Error at read XML and XRio files.\n")
-        PrintSmallHelp()
+        print_small_help()
+        time.sleep(5)
         sys.exit()
 
-    # select config section by MLFB code
+    # select config_tree section by MLFB code
     MLFBDIGSI = xml_tree.xpath('.//General/GeneralData[@Name="MLFBDIGSI"]/@ID')[0]
-    for k in config.keys():
-        if (MLFBDIGSI[0:len(k)] == k):
-            config = config[k]
+    for k in config_tree.keys():
+        if MLFBDIGSI[0:len(k)] == k:
+            config_tree = config_tree[k]
             break
 
-    # Converrt to primary values rules:
-    # 1. use 'primary' var from command line if it is set;
-    # 2. else use 'convert_to_primary' var from config for this device;
-    # 3. else 'primary' = true
-
-    primary = True
-    if ('convert_to_primary' in config) and (config['convert_to_primary'].lower() == "false"):
-        primary = False
-    if primary_form_cmd is False:
-        primary = False
-
-    # prepare ktt and ktn values, only if primary = true
+    # 7SD52 may not include Set of Step Protections and may not contain voltage_primary parameters
+    ktn = 1
+    ktt = 1
+    primary = config_tree['convert_to_primary'].lower() == 'true'
     if primary:
-        # 7SD52 may not include Set of Step Protections and may not contain voltage_primary parameters
-        v_primary = xml_tree.xpath(config['voltage_primary'])
-        v_primary = 1 if len(v_primary) == 0 else float(re.sub(r"[^\d+.]", "", v_primary[0], 0, 0)) * 1000  # voltage in kilovolts
-        v_second = xml_tree.xpath(config['voltage_second'])
-        v_second = 1 if len(v_second) == 0 else float(re.sub(r"[^\d+.]", "", v_second[0], 0, 0))
-        ktn = v_primary / v_second
-        c_primary = xml_tree.xpath(config['current_primary'])[0]
-        c_primary = int(re.sub(r"[^\d+\.]", "", c_primary, 0, 0))
-        c_second = xml_tree.xpath(config['current_second'])[0]
-        c_second = int(re.sub(r"[^\d+\.]", "", c_second, 0, 0))
-        ktt = c_primary / c_second
+        try:
+            v_primary = xml_tree.xpath(config_tree['voltage_primary'])
+            v_primary = 1 if len(v_primary) == 0 else float(re.sub(r"[^\d+.]", "", v_primary[0], 0, 0)) * 1000  # voltage in kilovolts
+            v_second = xml_tree.xpath(config_tree['voltage_second'])
+            v_second = 1 if len(v_second) == 0 else float(re.sub(r"[^\d+.]", "", v_second[0], 0, 0))
+            ktn = v_primary / v_second
+            c_primary = xml_tree.xpath(config_tree['current_primary'])[0]
+            c_primary = int(re.sub(r"[^\d+\.]", "", c_primary, 0, 0))
+            c_second = xml_tree.xpath(config_tree['current_second'])[0]
+            c_second = int(re.sub(r"[^\d+\.]", "", c_second, 0, 0))
+            ktt = c_primary / c_second
+        except:
+            print("Can't find primary/secondary values of current and voltage.\n")
+            time.sleep(5)
+            sys.exit()
 
     extract_parameters_to_rearrange();
 
     # paste overview info about terminal
     # MLFB code
-    sheet.merge_range(cur_row, 0, cur_row, 1, "MLFB Код", frm_name)
-    sheet.merge_range(cur_row, 2, cur_row, 7, MLFBDIGSI, frm_name)
+    sheet.merge_range(cur_row, 0, cur_row, 1, "MLFB Код", cell_formats[0])
+    sheet.merge_range(cur_row, 2, cur_row, 7, MLFBDIGSI, cell_formats[0])
     cur_row = cur_row + 1
     # Version
-    sheet.merge_range(cur_row, 0, cur_row, 1, "Версия ПО терминала", frm_name)
+    sheet.merge_range(cur_row, 0, cur_row, 1, "Версия ПО терминала", cell_formats[0])
     # sheet.merge_range(cur_row, 2, cur_row, 7, xml_tree.xpath('.//General/GeneralData[@Name="Version"]/@ID')[0], frm_name)   # версия ПО из XML файла
     sheet.merge_range(cur_row, 2, cur_row, 7, xrio_tree.xpath(
-        '//XRio/CUSTOM/Block/Block[@Id="GENERALINFO"]/Block/Parameter[@Id="SERIAL_NUMBER"]/Value/text()')[0],
-                      frm_name)  # версия ПО из XRio файла
+        '//XRio/CUSTOM/Block/Block[@Id="GENERALINFO"]/Block/Parameter[@Id="SERIAL_NUMBER"]/Value/text()')[0], cell_formats[0])  # версия ПО из XRio файла
     cur_row = cur_row + 1
     # Topology
-    sheet.merge_range(cur_row, 0, cur_row, 1, "Топология", frm_name)
-    sheet.merge_range(cur_row, 2, cur_row, 7, xml_tree.xpath('.//General/GeneralData[@Name="Topology"]/@ID')[0],
-                      frm_name)
+    sheet.merge_range(cur_row, 0, cur_row, 1, "Топология", cell_formats[0])
+    sheet.merge_range(cur_row, 2, cur_row, 7, xml_tree.xpath('.//General/GeneralData[@Name="Topology"]/@ID')[0], cell_formats[0])
     cur_row = cur_row + 1
     # Self version (crc32)
-    sheet.merge_range(cur_row, 0, cur_row, 1, "Версия SiemensPie", frm_name)
-    sheet.merge_range(cur_row, 2, cur_row, 7, SelfCRC32(), frm_name)
+    sheet.merge_range(cur_row, 0, cur_row, 1, "Версия SiemensPie", cell_formats[0])
+    sheet.merge_range(cur_row, 2, cur_row, 7, __version__, cell_formats[0])
     cur_row = cur_row + 1
 
     # main work
     FunctionGroups = xml_tree.findall('Settings/FunctionGroup')
     for FunctionGroup in FunctionGroups:
-        ProcessFunctionGroup(FunctionGroup)
+        process_function_group(FunctionGroup)
 
     # iss9: if ref address to move parameters is not exists we can still this parameter.
     #  But we can drop this parameters to end of exported list.
@@ -291,43 +260,49 @@ def ProcessAll():
     return
 
 
-'''
- insert header and page stylization 
-'''
+def page_setup():
+    """ insert header and page stylization
+    """
 
-
-def PageSetup():
     # page margins, headers and footers
-    sheet.set_margins(0.4, 0.4, 0.4, 0.4)
+    sheet.set_margins(0.4, 0.4, 0.9, 0.8)
     sheet.set_header("", {'margin': 0.12})
     sheet.set_footer("&amp;R&amp;F\n&amp;P", {'margin': 0.12})
     sheet.set_zoom(90)
     sheet.set_landscape()
+    sheet.set_paper(9)
     sheet.fit_to_pages(1, 0)
+    sheet.set_footer("&R&F\r&R&P", {'margin': 0.25})
 
-    # text formats
-    global frm_address, frm_address_high, frm_address_hide, frm_name, frm_range, frm_values, frm_desc, frm_h1, frm_h2, frm_h
-    frm_address = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
-    frm_address_high = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': 'yellow'})
-    frm_address_hide = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'color': 'white', 'font_size': '3'})
-    frm_name = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
-    frm_range = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
-    frm_values = book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'num_format': '@'})
-    frm_desc = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
-    frm_desc = book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
-    frm_h1 = book.add_format(
-        {'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'font_size': 13, 'bg_color': '#EEECE1'})
-    frm_h2 = book.add_format(
-        {'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#EEECE1'})
-    frm_h = book.add_format(
-        {'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#EEECE1'})
+    # text formaats
+    global cell_formats
+
+    # cell formats array
+    cell_formats = {
+        0: book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'border': 0}),     # default
+        1: book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'border': 1}),   # address
+        2: book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'border': 1}),     # name
+        3: book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'border': 1}),     # range
+        4: book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'border': 1}),   # value, g.A
+        5: book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'border': 1}),   # value, g.B
+        6: book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'border': 1}),   # value, g.C
+        7: book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'border': 1}),   # value, g.D
+        8: book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'border': 1}),     # desc
+        9: book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'font_size': 13, 'bg_color': '#EEECE1', 'border': 1}),  # h1
+       10: book.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#EEECE1', 'border': 1}),  # h2
+       11: book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#EEECE1', 'border': 1}), # h3
+       12: book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#EEECE1', 'top': 1, 'left': 1, 'right': 1, 'bottom': 0}),  # h3 without bottom border
+       13: book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bold': True, 'bg_color': '#EEECE1', 'top': 0, 'left': 1, 'right': 1, 'bottom': 1}),  # h3 without top border
+       14: book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': 'yellow', 'border': 1}),  # highlight address
+       15: book.add_format({'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'color': 'white', 'font_size': '3', 'border': 1})   # hide address
+    }
 
     # set column width and formats
-    sheet.set_column(0, 0, 6, frm_address)  # address
-    sheet.set_column(1, 1, 23, frm_name)  # name
-    sheet.set_column(2, 2, 30, frm_range)  # range
-    sheet.set_column(3, 6, 8.3, frm_values)  # values in groups
-    sheet.set_column(7, 7, 41.6, frm_desc)  # description
+    sheet.set_column(0, 0, 6)  # address
+    sheet.set_column(1, 1, 23)  # name
+    sheet.set_column(2, 2, 30)  # range
+    sheet.set_column(3, 6, 8.3)  # values in groups
+    sheet.set_column(7, 7, 41.6)  # description
 
     return
 
@@ -335,15 +310,14 @@ def PageSetup():
 '''
  insert chapter header
 '''
+def print_h1(text):
 
-
-def PrintH1(text):
     global cur_row, last_h1_title, frm_h1
 
     # check text to titles_correct
-    text = config['titles_correct'].get(text, text)
+    text = config_tree['titles_correct'].get(text, text)
 
-    sheet.merge_range(cur_row, 0, cur_row, 7, text, frm_h1)
+    sheet.merge_range(cur_row, 0, cur_row, 7, text, cell_formats[9])
     cur_row = cur_row + 1
 
     # save last h1 header for titles_correct inn PrintH2
@@ -355,61 +329,68 @@ def PrintH1(text):
 '''
  insert chapter sub-header
 '''
+def print_h2(text):
 
-
-def PrintH2(text):
     if text != "" and text != last_h1_title:
         global cur_row, frm_h2
 
         # check text to titles_correct
-        text = config['titles_correct'].get(last_h1_title + "|" + text, text)
+        text = config_tree['titles_correct'].get(last_h1_title + "|" + text, text)
 
-        sheet.merge_range(cur_row, 0, cur_row, 7, text, frm_h2)
+        sheet.merge_range(cur_row, 0, cur_row, 7, text, cell_formats[10])
         cur_row = cur_row + 1
 
     return
 
 
-'''
- insert header with column titles
-'''
+def print_h3(title_prefix='', groups=False):
+    """ insert parameter groups header
+    """
 
+    global cur_row, cell_formats
 
-def PrintGroupHeader(at_row):
-    sheet.merge_range(at_row, 0, at_row + 1, 0, "Адрес", frm_h)
-    sheet.merge_range(at_row, 1, at_row + 1, 1, "Параметр", frm_h)
-
-    if group_has_elec_values:
-        sheet.write(at_row, 2, "Значение/диапазон/шаг", frm_h)
-        sheet.write(at_row + 1, 2, "(вторичные величины)", frm_h)
+    if title_prefix != '':
+        if groups:                                                                                     ### 3 rows
+            sheet.merge_range(cur_row, 0, cur_row + 2, 0, "Адрес", cell_formats[11])                     # column 1
+            sheet.merge_range(cur_row, 1, cur_row + 2, 1, "Параметр", cell_formats[11])                  # column 2
+            sheet.write(cur_row, 2, "Значение/диапазон/шаг", cell_formats[12])                           # column 3
+            sheet.merge_range(cur_row + 1, 2, cur_row + 2, 2, "(вторичные величины)", cell_formats[13])
+            sheet.merge_range(cur_row, 3, cur_row, 6, "Задаваемый параметр", cell_formats[12])           # column 4
+            sheet.merge_range(cur_row + 1, 3, cur_row + 1, 6, title_prefix, cell_formats[13])
+            sheet.write(cur_row + 2, 3, "Группа A", cell_formats[11])
+            sheet.write(cur_row + 2, 4, "Группа B", cell_formats[11])
+            sheet.write(cur_row + 2, 5, "Группа C", cell_formats[11])
+            sheet.write(cur_row + 2, 6, "Группа D", cell_formats[11])
+            sheet.merge_range(cur_row, 7, cur_row + 2, 7, "Комментарий", cell_formats[11])               # column 5
+            cur_row = cur_row + 3
+        else:                                                                                          ### 2 rows
+            sheet.merge_range(cur_row, 0, cur_row + 1, 0, "Адрес", cell_formats[11])                     # column 1
+            sheet.merge_range(cur_row, 1, cur_row + 1, 1, "Параметр", cell_formats[11])                  # column 2
+            sheet.write(cur_row, 2, "Значение/диапазон/шаг", cell_formats[12])                           # column 3
+            sheet.write(cur_row + 1, 2, "(вторичные величины)", cell_formats[13])
+            sheet.merge_range(cur_row, 3, cur_row, 6, "Задаваемый параметр", cell_formats[12])           # column 4
+            sheet.merge_range(cur_row + 1, 3, cur_row + 1, 6, title_prefix, cell_formats[13])
+            sheet.merge_range(cur_row, 7, cur_row + 1, 7, "Комментарий", cell_formats[11])               # column 5
+            cur_row = cur_row + 2
     else:
-        sheet.merge_range(at_row, 2, at_row + 1, 2, "Значение/диапазон/шаг", frm_h)
-
-    if group_has_group_values:
-        if group_has_elec_values:
-            sheet.set_row(at_row, 30)
-            if primary:
-                sheet.merge_range(at_row, 3, at_row, 6, "Задаваемый параметр\r\n(первичные величины)", frm_h)
-            else:
-                sheet.merge_range(at_row, 3, at_row, 6, "Задаваемый параметр\r\n(вторичные величины)", frm_h)
-        else:
-            sheet.merge_range(at_row, 3, at_row, 6, "Задаваемый параметр", frm_h)
-        sheet.write(at_row + 1, 3, "Группа A", frm_h)
-        sheet.write(at_row + 1, 4, "Группа B", frm_h)
-        sheet.write(at_row + 1, 5, "Группа C", frm_h)
-        sheet.write(at_row + 1, 6, "Группа D", frm_h)
-    else:
-        if group_has_elec_values:
-            if primary:
-                sheet.merge_range(at_row, 3, at_row, 6, "Задаваемый параметр", frm_h)
-                sheet.merge_range(at_row + 1, 3, at_row + 1, 6, "(первичные величины)", frm_h)
-            else:
-                sheet.merge_range(at_row, 3, at_row, 6, "Задаваемый параметр\r\n(вторичные величины)", frm_h)
-                sheet.merge_range(at_row + 1, 3, at_row + 1, 6, "(вторичные величины)", frm_h)
-        else:
-            sheet.merge_range(at_row, 3, at_row + 1, 6, "Задаваемый параметр", frm_h)
-
-    sheet.merge_range(at_row, 7, at_row + 1, 7, "Комментарий", frm_h)
+        if groups:                                                                                     ### 2 rows
+            sheet.merge_range(cur_row, 0, cur_row + 1, 0, "Адрес", cell_formats[11])                     # column 1
+            sheet.merge_range(cur_row, 1, cur_row + 1, 1, "Параметр", cell_formats[11])                  # column 2
+            sheet.merge_range(cur_row, 2, cur_row + 1, 2, "Значение/диапазон/шаг", cell_formats[11])     # column 3
+            sheet.merge_range(cur_row, 3, cur_row, 6, "Задаваемый параметр", cell_formats[11])           # column 4
+            sheet.write(cur_row + 1, 3, "Группа A", cell_formats[11])
+            sheet.write(cur_row + 1, 4, "Группа B", cell_formats[11])
+            sheet.write(cur_row + 1, 5, "Группа C", cell_formats[11])
+            sheet.write(cur_row + 1, 6, "Группа D", cell_formats[11])
+            sheet.merge_range(cur_row, 7, cur_row + 1, 7, "Комментарий", cell_formats[11])               # column 5
+            cur_row = cur_row + 2
+        else:                                                                                          ### 1 rows
+            sheet.write(cur_row, 0, "Адрес", cell_formats[11])                                           # column 1
+            sheet.write(cur_row, 1, "Параметр", cell_formats[11])                                        # column 2
+            sheet.write(cur_row, 2, "Значение/диапазон/шаг", cell_formats[11])                           # column 3
+            sheet.merge_range(cur_row, 3, cur_row, 6, "Задаваемый параметр", cell_formats[11])           # column 4
+            sheet.write(cur_row, 7, "Комментарий", cell_formats[11])                                     # column 5
+            cur_row = cur_row + 1
 
     return
 
@@ -419,7 +400,7 @@ def PrintGroupHeader(at_row):
 '''
 
 
-def UpdateColumnHeader(RowNo, addtext_range="", addtext_value=""):
+def update_column_header(RowNo, addtext_range="", addtext_value=""):
     if addtext_range != "":
         sheet.Cells(RowNo, 3).Value = sheet.Cells(RowNo, 3).Value + "\r\n(" + addtext_range + ")"
     if addtext_value != "":
@@ -434,7 +415,7 @@ def UpdateColumnHeader(RowNo, addtext_range="", addtext_value=""):
 
 
 # добавление текста групп уставок в шапку таблицы
-def InsertGroupHeader(RowNo):
+def insert_group_header(RowNo):
     global cur_row
     global group_has_elec_values
 
@@ -473,9 +454,8 @@ def InsertGroupHeader(RowNo):
 '''
  get parameter info from XRio file
 '''
+def extract_parameter_name(Address):
 
-
-def ExtractParameterName(Address):
     global xrio_tree
 
     ParameterName = xrio_tree.xpath("//ForeignId[text()='" + Address + "']/parent::*/Name/text()")
@@ -490,9 +470,8 @@ def ExtractParameterName(Address):
 '''
  get parameter precision from XRio file
 '''
+def extract_parameter_precision(Address):
 
-
-def ExtractParameterPrecision(Address):
     global xrio_tree
 
     ParameterPrecision = xrio_tree.xpath("//ForeignId[text()='" + Address + "']/parent::*/Unit")
@@ -505,9 +484,8 @@ def ExtractParameterPrecision(Address):
 '''
  convert electrical value to primary
 '''
+def convert_to_primary(Address, Value, Dimension, SecondaryPrecision):
 
-
-def ConvertToPrimary(Address, Value, Dimension, SecondaryPrecision):
     # do not convert special addresses
 
     global group_has_elec_values
@@ -516,22 +494,22 @@ def ConvertToPrimary(Address, Value, Dimension, SecondaryPrecision):
     rez = Value
     if re.search(r"\d+(\.|)\d*", Value, re.MULTILINE):
         Value = float(Value)
-        if (Dimension == "А"):
+        if Dimension == "А":
             rez = "%g" % round(Value * ktt, SecondaryPrecision - 1) + " " + Dimension
             group_has_elec_values = True
-        elif (Dimension == "В"):
+        elif Dimension == "В":
             rez = "%g" % (Value * ktn / 1000) + " кВ"
             group_has_elec_values = True
-        elif (Dimension == "Ом"):  # 2018-03-23: в 7SA в первичных 3 знака после запятой, в 7SD - два, везде делаем 3
+        elif Dimension == "Ом":  # 2018-03-23: в 7SA в первичных 3 знака после запятой, в 7SD - два, везде делаем 3
             rez = "%g" % round(Value * ktn / ktt, SecondaryPrecision) + " " + Dimension
             group_has_elec_values = True
-        elif (Dimension == "Ом / км"):
+        elif Dimension == "Ом / км":
             rez = "%g" % round(Value * ktn / ktt, SecondaryPrecision - 1) + " " + Dimension
             group_has_elec_values = True
-        elif (Dimension == "ВА"):
+        elif Dimension == "ВА":
             rez = "%g" % round(Value * ktn * ktt / 1000000, SecondaryPrecision + 1) + " МВА"
             group_has_elec_values = True
-        elif (Dimension == "мкФ/км"):
+        elif Dimension == "мкФ/км":
             rez = "%g" % round(Value * ktt / ktn, SecondaryPrecision + 1) + " " + Dimension
             group_has_elec_values = True
         else:
@@ -540,16 +518,19 @@ def ConvertToPrimary(Address, Value, Dimension, SecondaryPrecision):
     return str(rez)
 
 
+
+
+
 '''
  extract parameter values in all groups of parameters
 '''
 
 
-def ExtractParameterValues(Parameter):
+def extract_parameter_values(Parameter):
     ParameterAddr = Parameter.attrib['DAdr']
     ParameterType = Parameter.attrib['Type']
 
-    global group_has_group_values
+    global group_has_group_values#, primary
 
     ParameterValue = Parameter.find(r"Value")
     ParameterValueA = Parameter.find(r"Value[@SettingGroup='A']")
@@ -582,20 +563,20 @@ def ExtractParameterValues(Parameter):
             Dimension = ''
 
         # convert to primary if needed
-        if (primary == False) | (config['params_without_convert'] == 'all') | (ParameterAddr in config['params_without_convert']):
+        if (primary == False) | (ParameterAddr in config_tree['params_without_convert']):
             # if value is "oo" - do not display dimension
             # call ConvertToPrimary for calc 'group_has_elec_values' variable
-            ConvertToPrimary(ParameterAddr, ParameterValueA, Dimension, ExtractParameterPrecision(ParameterAddr))
+            convert_to_primary(ParameterAddr, ParameterValueA, Dimension, extract_parameter_precision(ParameterAddr))
             ParameterValueA = ParameterValueA if ParameterValueA == "oo" else ParameterValueA + " " + Dimension
             ParameterValueB = ParameterValueB if ParameterValueB == "oo" else ParameterValueB + " " + Dimension
             ParameterValueC = ParameterValueC if ParameterValueC == "oo" else ParameterValueC + " " + Dimension
             ParameterValueD = ParameterValueD if ParameterValueD == "oo" else ParameterValueD + " " + Dimension
         else:
-            SecondaryPrecision = ExtractParameterPrecision(ParameterAddr)
-            ParameterValueA = ConvertToPrimary(ParameterAddr, ParameterValueA, Dimension, SecondaryPrecision)
-            ParameterValueB = ConvertToPrimary(ParameterAddr, ParameterValueB, Dimension, SecondaryPrecision)
-            ParameterValueC = ConvertToPrimary(ParameterAddr, ParameterValueC, Dimension, SecondaryPrecision)
-            ParameterValueD = ConvertToPrimary(ParameterAddr, ParameterValueD, Dimension, SecondaryPrecision)
+            SecondaryPrecision = extract_parameter_precision(ParameterAddr)
+            ParameterValueA = convert_to_primary(ParameterAddr, ParameterValueA, Dimension, SecondaryPrecision)
+            ParameterValueB = convert_to_primary(ParameterAddr, ParameterValueB, Dimension, SecondaryPrecision)
+            ParameterValueC = convert_to_primary(ParameterAddr, ParameterValueC, Dimension, SecondaryPrecision)
+            ParameterValueD = convert_to_primary(ParameterAddr, ParameterValueD, Dimension, SecondaryPrecision)
 
     return [ParameterValueA.strip(), ParameterValueB.strip(), ParameterValueC.strip(), ParameterValueD.strip()]
 
@@ -605,7 +586,7 @@ def ExtractParameterValues(Parameter):
 '''
 
 
-def ExtractParameterRange(Parameter):
+def extract_parameter_range(Parameter):
     ParameterType = Parameter.attrib['Type']
     RangeText = ''
     Precision = 0
@@ -640,61 +621,61 @@ def ExtractParameterRange(Parameter):
 '''
 
 
-def PrintParameterData(ParameterData, highlight=False):
+def print_parameter_data(ParameterData, highlight=False):
 
     global cur_row, last_printed_address
 
-    # write data from config then correct it by "params_correct" config section
+    # write data from config_tree then correct it by "params_correct" config_tree section
     if len(ParameterData['Address']) > 6:
-        sheet.write(cur_row, 0, ParameterData['Address'], frm_address_hide)
+        sheet.write(cur_row, 0, ParameterData['Address'], cell_formats[15])
     elif highlight:
-        sheet.write(cur_row, 0, ParameterData['Address'], frm_address_high)
+        sheet.write(cur_row, 0, ParameterData['Address'], cell_formats[14])
     else:
-        sheet.write(cur_row, 0, ParameterData['Address'], frm_address)
-    sheet.write(cur_row, 1, ParameterData['Name'], frm_name)
-    sheet.write(cur_row, 2, ParameterData['Range'], frm_range)
+        sheet.write(cur_row, 0, ParameterData['Address'], cell_formats[1])
+    sheet.write(cur_row, 1, ParameterData['Name'], cell_formats[2])
+    sheet.write(cur_row, 2, ParameterData['Range'], cell_formats[3])
 
     ParameterValues = ParameterData['Values']
 
     # if values are equal merge cells
     if ParameterValues[0] == ParameterValues[1] == ParameterValues[2] == ParameterValues[3]:
-        sheet.merge_range(cur_row, 3, cur_row, 6, ParameterValues[0], frm_values)
+        sheet.merge_range(cur_row, 3, cur_row, 6, ParameterValues[0], cell_formats[4])
     elif ParameterValues[0] == ParameterValues[1] == ParameterValues[2]:
-        sheet.merge_range(cur_row, 3, cur_row, 5, ParameterValues[0], frm_values)
-        sheet.write(cur_row, 6, ParameterValues[3], frm_values)
+        sheet.merge_range(cur_row, 3, cur_row, 5, ParameterValues[0], cell_formats[4])
+        sheet.write(cur_row, 6, ParameterValues[3], cell_formats[7])
     elif ParameterValues[0] == ParameterValues[1]:
-        sheet.merge_range(cur_row, 3, cur_row, 4, ParameterValues[0], frm_values)
+        sheet.merge_range(cur_row, 3, cur_row, 4, ParameterValues[0], cell_formats[4])
         if ParameterValues[2] == ParameterValues[3]:
-            sheet.merge_range(cur_row, 5, cur_row, 6, ParameterValues[2], frm_values)
+            sheet.merge_range(cur_row, 5, cur_row, 6, ParameterValues[2], cell_formats[6])
         else:
-            sheet.write(cur_row, 5, ParameterValues[2], frm_values)
-            sheet.write(cur_row, 6, ParameterValues[3], frm_values)
+            sheet.write(cur_row, 5, ParameterValues[2], cell_formats[6])
+            sheet.write(cur_row, 6, ParameterValues[3], cell_formats[7])
     elif ParameterValues[1] == ParameterValues[2] == ParameterValues[3]:
-        sheet.write(cur_row, 3, ParameterValues[0], frm_values)
-        sheet.merge_range(cur_row, 4, cur_row, 6, ParameterValues[1], frm_values)
+        sheet.write(cur_row, 3, ParameterValues[0], cell_formats[4])
+        sheet.merge_range(cur_row, 4, cur_row, 6, ParameterValues[1], cell_formats[5])
     elif ParameterValues[2] == ParameterValues[3]:
-        sheet.write(cur_row, 3, ParameterValues[0], frm_values)
-        sheet.write(cur_row, 4, ParameterValues[1], frm_values)
-        sheet.merge_range(cur_row, 5, cur_row, 6, ParameterValues[2], frm_values)
+        sheet.write(cur_row, 3, ParameterValues[0], cell_formats[4])
+        sheet.write(cur_row, 4, ParameterValues[1], cell_formats[5])
+        sheet.merge_range(cur_row, 5, cur_row, 6, ParameterValues[2], cell_formats[6])
     elif ParameterValues[1] == ParameterValues[2]:
-        sheet.write(cur_row, 3, ParameterValues[0], frm_values)
-        sheet.merge_range(cur_row, 4, cur_row, 5, ParameterValues[1], frm_values)
-        sheet.write(cur_row, 6, ParameterValues[3], frm_values)
+        sheet.write(cur_row, 3, ParameterValues[0], cell_formats[4])
+        sheet.merge_range(cur_row, 4, cur_row, 5, ParameterValues[1], cell_formats[5])
+        sheet.write(cur_row, 6, ParameterValues[3], cell_formats[7])
     else:
-        sheet.write(cur_row, 3, ParameterValues[0], frm_values)
-        sheet.write(cur_row, 4, ParameterValues[1], frm_values)
-        sheet.write(cur_row, 5, ParameterValues[2], frm_values)
-        sheet.write(cur_row, 6, ParameterValues[3], frm_values)
+        sheet.write(cur_row, 3, ParameterValues[0], cell_formats[4])
+        sheet.write(cur_row, 4, ParameterValues[1], cell_formats[5])
+        sheet.write(cur_row, 5, ParameterValues[2], cell_formats[6])
+        sheet.write(cur_row, 6, ParameterValues[3], cell_formats[7])
 
-    sheet.write(cur_row, 7, ParameterData['Description'], frm_desc)
+    sheet.write(cur_row, 7, ParameterData['Description'], cell_formats[8])
 
     # and correct (or add new)
     addr = ParameterData['Address']
-    need_correct = config["params_correct"].get(addr, None)
+    need_correct = config_tree["params_correct"].get(addr, None)
     if need_correct != None:
-        col_no = config["params_correct"].get(addr, None)[0]
-        col_val = config["params_correct"].get(addr, None)[1]
-        sheet.write(cur_row, int(col_no), col_val)
+        col_no = config_tree["params_correct"].get(addr, None)[0]
+        col_val = config_tree["params_correct"].get(addr, None)[1]
+        sheet.write(cur_row, int(col_no), col_val, cell_formats[col_no+1] if col_no in range(0, 7) else cell_formats[0])
 
     cur_row = cur_row + 1
     last_printed_address = ParameterData['Address']
@@ -712,10 +693,10 @@ def PrintParameterData(ParameterData, highlight=False):
 '''
 
 
-def StashParametersPush(ParameterData):
+def stash_parameters_push(ParameterData):
     global stash
 
-    PopAfter = config['params_to_rearrange'].get(ParameterData['Address'], 0)
+    PopAfter = config_tree['params_to_rearrange'].get(ParameterData['Address'], 0)
     if (PopAfter == 0):
         return False
     else:
@@ -731,14 +712,14 @@ def StashParametersPush(ParameterData):
 '''
 
 
-def StashParametersPop(ParameterAddress):
+def stash_parameters_pop(ParameterAddress):
     global stash
 
     for i in range(len(stash)):
         if (stash[i]['PopAfter'] == ParameterAddress):  # past stashed parameter with PopAfter number
             ParameterData = stash[i]['ParameterData']
             stash.pop(i)
-            PrintParameterData(ParameterData)
+            print_parameter_data(ParameterData)
             return ParameterData['Address']
 
     return False
@@ -750,7 +731,7 @@ def StashParametersPop(ParameterAddress):
 '''
 
 
-def StashParametersPopAuto(ParameterAddress):
+def stash_parameters_pop_auto(ParameterAddress):
     global stash
 
     for i in range(len(stash)):
@@ -759,7 +740,7 @@ def StashParametersPopAuto(ParameterAddress):
                     re.sub('[^\d]', '', stash[i]['ParameterData']['Address'])))):
             ParameterData = stash[i]['ParameterData']
             stash.pop(i)
-            PrintParameterData(ParameterData)
+            print_parameter_data(ParameterData)
             return ParameterData['Address']
 
     return False
@@ -774,7 +755,7 @@ def insert_parameter(parameter_data, rearrange=False):
     # print current address if this address is absent in stash
     if ((not (any(p['ParameterData']['Address'] == parameter_data['Address'] for p in stash))) |
         (rearrange)):
-        PrintParameterData(parameter_data, rearrange)
+        print_parameter_data(parameter_data, rearrange)
 
         # rearrange: Num (post after current address)
         for i in range(len(stash)):
@@ -791,9 +772,9 @@ def process_parameter(parameter):
     address = parameter.attrib['DAdr']
     parameter_data = {
         'Address': address,
-        'Name': ExtractParameterName(address),
-        'Range': ExtractParameterRange(parameter)[0],
-        'Values': ExtractParameterValues(parameter),
+        'Name': extract_parameter_name(address),
+        'Range': extract_parameter_range(parameter)[0],
+        'Values': extract_parameter_values(parameter),
         'Description': parameter.attrib['Name'],
     }
 
@@ -820,45 +801,66 @@ def process_parameter(parameter):
                     (stash[i]['ParameterData']['Address'] not in inserted_stash) & \
                     (not (any(p['ParameterData']['Address'] == address for p in stash))):
 
-                PrintParameterData(stash[i]['ParameterData'], True)
+                print_parameter_data(stash[i]['ParameterData'], True)
                 inserted_stash.append(stash[i]['ParameterData']['Address'])
                 need_loop = True
 
 
     # print current address parameter
     if not (any(p['ParameterData']['Address'] == address for p in stash)):
-        PrintParameterData(parameter_data)
+        print_parameter_data(parameter_data)
 
     # rearrange: Num (post after current address)
     for i in range(len(stash)):
         if stash[i]['PopAfter'] == address:
-            PrintParameterData(stash[i]['ParameterData'], True)
+            print_parameter_data(stash[i]['ParameterData'], True)
             inserted_stash.append(stash[i]['ParameterData']['Address'])
 
     return
 
 
-'''
- process settings page
-'''
+def is_elec_value(dimension):
+    return dimension in ["А", "В", "Ом", "Ом / км", "ВА", "мкФ/км"]
 
-def ProcessSettingPage(SettingPage):
-    global cur_row, group_has_elec_values, group_has_group_values
 
-    SettingPageName = SettingPage.attrib['Name']
-    PrintH2(SettingPageName)
+def process_setting_page(setting_page):
+    """process settings page
+    """
+    global cur_row, primary
 
-    Parameters = SettingPage.findall("Parameter")
+    setting_page_name = setting_page.attrib['Name']
+    print_h2(setting_page_name)
 
-    group_has_elec_values = False
-    group_has_group_values = False
-    header_row = cur_row
-    cur_row = cur_row + 2
+    parameters = setting_page.findall("Parameter")
 
-    for Parameter in Parameters:
-        process_parameter(Parameter)
+    page_have_elec_param = False
+    page_have_param_to_convert = False
+    page_have_groups = False
 
-    PrintGroupHeader(header_row)
+    for parameter in parameters:
+        if parameter.attrib['Type'] != "Txt":
+            dimension = parameter.find('Comment[@Dimension]')
+            if dimension != None:
+                dimension = dimension.attrib.get('Dimension')
+            else:
+                dimension = ''
+            if dimension in ["А", "В", "Ом", "Ом / км", "ВА", "мкФ/км"]:
+                page_have_elec_param = True
+                if not parameter.attrib['DAdr'] in config_tree['params_without_convert']:
+                    page_have_param_to_convert = True
+            if parameter.find(r"Value[@SettingGroup='A']") is not None:
+                page_have_groups = True
+
+    if page_have_elec_param & page_have_param_to_convert:
+        if primary:
+            print_h3('(первичные величины)', page_have_groups)
+        else:
+            print_h3('(вторичные величины)', page_have_groups)
+    else:
+        print_h3('', page_have_groups)
+
+    for parameter in parameters:
+        process_parameter(parameter)
 
     return
 
@@ -868,46 +870,37 @@ def ProcessSettingPage(SettingPage):
 '''
 
 
-def ProcessFunctionGroup(FunctionGroup):
+def process_function_group(FunctionGroup):
     FunctionGroupName = FunctionGroup.attrib['Name']
-    PrintH1(FunctionGroupName)
+    print_h1(FunctionGroupName)
     SettingPages = FunctionGroup.findall("SettingPage")
     for SettingPage in SettingPages:
-        ProcessSettingPage(SettingPage)
+        process_setting_page(SettingPage)
 
     return
 
 
-def dispatch_request(self):
-    """Subclasses have to override this method to implement the
-    actual view function code.  This method is called with all
-    the arguments from the URL rule.
-    """
-
-    return
-
-
+'''
+  process all XML file and extract params for rearrange to stash list
+'''
 def extract_parameters_to_rearrange():
-    """ process all XML file and extract params for rearrange to stash list
-    """
 
     global xrio_tree, xml_tree
-    global config
+    global config_tree
     global stash
 
     all_params = xml_tree.findall('Settings//Parameter')
     for p in all_params:
-
         parameter_data = {
             'Address': p.attrib['DAdr'],
-            'Name': ExtractParameterName(p.attrib['DAdr']),
-            'Range': ExtractParameterRange(p)[0],
-            'Values': ExtractParameterValues(p),
+            'Name': extract_parameter_name(p.attrib['DAdr']),
+            'Range': extract_parameter_range(p)[0],
+            'Values': extract_parameter_values(p),
             'Description': p.attrib['Name'],
         }
 
         # pop_after may be "auto" or parameter address
-        pop_after = config['params_to_rearrange'].get(parameter_data['Address'], 0)
+        pop_after = config_tree['params_to_rearrange'].get(parameter_data['Address'], 0)
         if pop_after != 0:
             stash.append({
                 'PopAfter': pop_after,
@@ -924,9 +917,7 @@ def extract_parameters_to_rearrange():
 '''
  register .xrio extention for siemens py 
 '''
-
-
-def RegisterXrioExt():
+def register_xrio_ext():
 
     try:
         if getattr(sys, 'frozen', False):
@@ -959,11 +950,19 @@ def RegisterXrioExt():
     return
 
 
-RegisterXrioExt()
-ProcessCommandLine()
-CreateOutputFile()
-PageSetup()
-ProcessAll()
+'''
+  Main work stats from print hello message
+'''
+print("SiemensPie - tool for convert Siemens Siprotec relay protection config")
+print("to readable and editable format (Excel .xlsx file)")
+print("(C) "+__version__+" Wyfinger, https://github.com/wyfinger/SiemensPie")
+print("")
+
+register_xrio_ext()
+process_command_line()
+create_output_file()
+page_setup()
+process_all()
 book.close()
 
 time.sleep(5)
