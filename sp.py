@@ -42,12 +42,9 @@ last_h1_title = ""
 
 # TODO: уставка 7137 в 7SJ не выводится в Excel, хотя в конфиге, если посмотреть в Digsi, есть.
 
-
-'''
- print small help tip to console, for use in error in parameters
-'''
 def print_small_help():
-
+    # print small help tip to console, for use in error in parameters
+    #
     print("Use: sp.exe [-c] [xml or xrio file] [xml or xrio file]")
     print("  -c  - path to config.json file")
     print("  set one (xml or xrio) file if they have the same name")
@@ -56,29 +53,23 @@ def print_small_help():
     return
 
 
-'''
- read config file (Json)
-'''
 def read_config(config_path):
-
+    # read config file (Json)
     try:
         # print('Reading config_tree from: ' + config_path)
         with codecs.open(config_path, 'r', 'utf-8') as param_file:
-            return json.load(param_file)
+            rez = json.load(param_file)
     except:
         print("Error at read config.json file.\n")
         print_small_help()
         time.sleep(5)
         sys.exit()
 
-    return
+    return rez
 
 
-'''
- command line parameter analyses
-'''
 def process_command_line():
-
+    # command line parameter analyses
     global xriofile, xmlfile, config_tree
 
     if getattr(sys, 'frozen', False):
@@ -132,8 +123,7 @@ def process_command_line():
 
 
 def create_output_file():
-    """create output excel file
-    """
+    # create output excel file
     global book, sheet
 
     try:
@@ -148,11 +138,8 @@ def create_output_file():
     return
 
 
-'''
- process stash scrap
-'''
 def print_consumed_params():
-
+    # process stash scrap
     global stash, cur_row
     global group_has_elec_values, group_has_group_values
 
@@ -180,11 +167,8 @@ def print_consumed_params():
     return
 
 
-'''
- start of data process
-'''
 def process_all():
-
+    # start of data process
     global xrio_tree, xml_tree
     global config_tree, primary, ktt, ktn, cur_row
 
@@ -261,8 +245,7 @@ def process_all():
 
 
 def page_setup():
-    """ insert header and page stylization
-    """
+    # insert header and page stylization
 
     # page margins, headers and footers
     sheet.set_margins(0.4, 0.4, 0.9, 0.8)
@@ -307,12 +290,9 @@ def page_setup():
     return
 
 
-'''
- insert chapter header
-'''
 def print_h1(text):
-
-    global cur_row, last_h1_title, frm_h1
+    # insert chapter header
+    global cur_row, last_h1_title
 
     # check text to titles_correct
     text = config_tree['titles_correct'].get(text, text)
@@ -326,13 +306,11 @@ def print_h1(text):
     return
 
 
-'''
- insert chapter sub-header
-'''
 def print_h2(text):
+    # insert chapter sub-header
+    global cur_row
 
     if text != "" and text != last_h1_title:
-        global cur_row, frm_h2
 
         # check text to titles_correct
         text = config_tree['titles_correct'].get(last_h1_title + "|" + text, text)
@@ -344,10 +322,8 @@ def print_h2(text):
 
 
 def print_h3(title_prefix='', groups=False):
-    """ insert parameter groups header
-    """
-
-    global cur_row, cell_formats
+    # insert parameter groups header
+    global cur_row
 
     if title_prefix != '':
         if groups:                                                                                     ### 3 rows
@@ -395,68 +371,8 @@ def print_h3(title_prefix='', groups=False):
     return
 
 
-'''
- update column header if chapter have electric paramaters 
-'''
-
-
-def update_column_header(RowNo, addtext_range="", addtext_value=""):
-    if addtext_range != "":
-        sheet.Cells(RowNo, 3).Value = sheet.Cells(RowNo, 3).Value + "\r\n(" + addtext_range + ")"
-    if addtext_value != "":
-        sheet.Cells(RowNo, 4).Value = sheet.Cells(RowNo, 4).Value + "\r\n(" + addtext_value + ")"
-    sheet.Rows(RowNo).RowHeight = 32
-    return
-
-
-'''
- insert group header if needed
-'''
-
-
-# добавление текста групп уставок в шапку таблицы
-def insert_group_header(RowNo):
-    global cur_row
-    global group_has_elec_values
-
-    sheet.Cells(RowNo, 1).EntireRow.Insert(1)
-    sheet.Rows(RowNo).RowHeight = 15
-
-    # велосипед на велосипеде !!!
-    if group_has_elec_values:
-        sheet.Rows(RowNo - 1).RowHeight = 32
-    else:
-        sheet.Rows(RowNo - 1).RowHeight = 22
-
-    sheet.Cells(RowNo, 4).Value = "Группа A"
-    sheet.Cells(RowNo, 5).Value = "Группа B"
-    sheet.Cells(RowNo, 6).Value = "Группа C"
-    sheet.Cells(RowNo, 7).Value = "Группа D"
-
-    # sheet.Rows.AutoFit()
-
-    sheet.Range("A" + str(RowNo - 1) + ":A" + str(RowNo)).Merge()
-    sheet.Range("B" + str(RowNo - 1) + ":B" + str(RowNo)).Merge()
-    sheet.Range("C" + str(RowNo - 1) + ":C" + str(RowNo)).Merge()
-    sheet.Range("H" + str(RowNo - 1) + ":H" + str(RowNo)).Merge()
-
-    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).HorizontalAlignment = -4108  # win32.constants.xlCenter
-    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Interior.Pattern = 1  # win32.constants.xlSolid
-    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Interior.ThemeColor = 1  # win32.constants.xlThemeColorDark1
-    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Interior.TintAndShade = -0.149998474074526
-    sheet.Range("A" + str(RowNo - 1) + ":H" + str(RowNo)).Font.Bold = True
-
-    cur_row = cur_row + 1
-
-    return
-
-
-'''
- get parameter info from XRio file
-'''
 def extract_parameter_name(Address):
-
-    global xrio_tree
+    # get parameter info from XRio file
 
     ParameterName = xrio_tree.xpath("//ForeignId[text()='" + Address + "']/parent::*/Name/text()")
     if (ParameterName != None) and (len(ParameterName) > 0):
@@ -467,12 +383,8 @@ def extract_parameter_name(Address):
     return ParameterName
 
 
-'''
- get parameter precision from XRio file
-'''
 def extract_parameter_precision(Address):
-
-    global xrio_tree
+    # get parameter precision from XRio file
 
     ParameterPrecision = xrio_tree.xpath("//ForeignId[text()='" + Address + "']/parent::*/Unit")
     if (ParameterPrecision != None) and (len(ParameterPrecision) > 0):
@@ -481,10 +393,8 @@ def extract_parameter_precision(Address):
         return 0
 
 
-'''
- convert electrical value to primary
-'''
 def convert_to_primary(Address, Value, Dimension, SecondaryPrecision):
+    # convert electrical value to primary
 
     # do not convert special addresses
 
@@ -518,19 +428,13 @@ def convert_to_primary(Address, Value, Dimension, SecondaryPrecision):
     return str(rez)
 
 
-
-
-
-'''
- extract parameter values in all groups of parameters
-'''
-
-
 def extract_parameter_values(Parameter):
+    # extract parameter values in all groups of parameters
+
     ParameterAddr = Parameter.attrib['DAdr']
     ParameterType = Parameter.attrib['Type']
 
-    global group_has_group_values#, primary
+    global group_has_group_values
 
     ParameterValue = Parameter.find(r"Value")
     ParameterValueA = Parameter.find(r"Value[@SettingGroup='A']")
@@ -581,12 +485,9 @@ def extract_parameter_values(Parameter):
     return [ParameterValueA.strip(), ParameterValueB.strip(), ParameterValueC.strip(), ParameterValueD.strip()]
 
 
-'''
- extract parameter range
-'''
-
-
 def extract_parameter_range(Parameter):
+    # extract parameter range
+
     ParameterType = Parameter.attrib['Type']
     RangeText = ''
     Precision = 0
@@ -616,12 +517,8 @@ def extract_parameter_range(Parameter):
     return [RangeText, Precision]
 
 
-'''
- paste parameter info to output excel sheet
-'''
-
-
 def print_parameter_data(ParameterData, highlight=False):
+    # paste parameter info to output excel sheet
 
     global cur_row, last_printed_address
 
@@ -688,12 +585,8 @@ def print_parameter_data(ParameterData, highlight=False):
     pass
 
 
-'''
- stash parameters for rearrange, push
-'''
-
-
 def stash_parameters_push(ParameterData):
+    # stash parameters for rearrange, push
     global stash
 
     PopAfter = config_tree['params_to_rearrange'].get(ParameterData['Address'], 0)
@@ -707,12 +600,8 @@ def stash_parameters_push(ParameterData):
         return True
 
 
-'''
- stash parameters for rearrange, pop (for stashed parameter with PopAfter number)
-'''
-
-
 def stash_parameters_pop(ParameterAddress):
+    # stash parameters for rearrange, pop (for stashed parameter with PopAfter number)
     global stash
 
     for i in range(len(stash)):
@@ -725,31 +614,8 @@ def stash_parameters_pop(ParameterAddress):
     return False
 
 
-'''
- stash parameters for rearrange, pop (for stashed parameter with PopAfter = "auto")
- past before current parameter
-'''
-
-
-def stash_parameters_pop_auto(ParameterAddress):
-    global stash
-
-    for i in range(len(stash)):
-        if ((stash[i]['PopAfter'].lower() == 'auto') &  # auto rearrange
-                (int(re.sub('[^\d]', '', ParameterAddress)) > int(
-                    re.sub('[^\d]', '', stash[i]['ParameterData']['Address'])))):
-            ParameterData = stash[i]['ParameterData']
-            stash.pop(i)
-            print_parameter_data(ParameterData)
-            return ParameterData['Address']
-
-    return False
-
-
 def insert_parameter(parameter_data, rearrange=False):
-    """ precess one parameter / address
-    """
-
+    # precess one parameter / address
     global stash
 
     # print current address if this address is absent in stash
@@ -765,9 +631,9 @@ def insert_parameter(parameter_data, rearrange=False):
 
     return
 
+
 def process_parameter(parameter):
-    """ precess one parameter / address
-    """
+    # precess one parameter / address
 
     address = parameter.attrib['DAdr']
     parameter_data = {
@@ -819,14 +685,9 @@ def process_parameter(parameter):
     return
 
 
-def is_elec_value(dimension):
-    return dimension in ["А", "В", "Ом", "Ом / км", "ВА", "мкФ/км"]
-
-
 def process_setting_page(setting_page):
-    """process settings page
-    """
-    global cur_row, primary
+    # process settings page
+    global cur_row
 
     setting_page_name = setting_page.attrib['Name']
     print_h2(setting_page_name)
@@ -865,12 +726,9 @@ def process_setting_page(setting_page):
     return
 
 
-'''
- process function group
-'''
-
-
 def process_function_group(FunctionGroup):
+    # process function group
+
     FunctionGroupName = FunctionGroup.attrib['Name']
     print_h1(FunctionGroupName)
     SettingPages = FunctionGroup.findall("SettingPage")
@@ -880,13 +738,8 @@ def process_function_group(FunctionGroup):
     return
 
 
-'''
-  process all XML file and extract params for rearrange to stash list
-'''
 def extract_parameters_to_rearrange():
-
-    global xrio_tree, xml_tree
-    global config_tree
+    # process all XML file and extract params for rearrange to stash list
     global stash
 
     all_params = xml_tree.findall('Settings//Parameter')
@@ -914,10 +767,8 @@ def extract_parameters_to_rearrange():
     return
 
 
-'''
- register .xrio extention for siemens py 
-'''
 def register_xrio_ext():
+    # register .xrio extention for siemens py
 
     try:
         if getattr(sys, 'frozen', False):
@@ -949,10 +800,9 @@ def register_xrio_ext():
 
     return
 
-
-'''
-  Main work stats from print hello message
-'''
+#
+# Main work stats from print hello message
+#
 print("SiemensPie - tool for convert Siemens Siprotec relay protection config")
 print("to readable and editable format (Excel .xlsx file)")
 print("(C) "+__version__+" Wyfinger, https://github.com/wyfinger/SiemensPie")
