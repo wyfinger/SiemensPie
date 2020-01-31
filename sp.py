@@ -13,7 +13,6 @@ from lxml import etree as lxml
 
 from xlsxwriter import Workbook
 from xlsxwriter.worksheet import Worksheet
-from xlsxwriter.format import Format
 
 import winreg
 
@@ -566,13 +565,17 @@ def print_parameter_data(ParameterData, highlight=False):
 
     sheet.write(cur_row, 7, ParameterData['Description'], cell_formats[8])
 
-    # and correct (or add new)
+    # and correct fields from 'params_correct' section of config
     addr = ParameterData['Address']
     need_correct = config_tree["params_correct"].get(addr, None)
-    if need_correct != None:
-        col_no = config_tree["params_correct"].get(addr, None)[0]
-        col_val = config_tree["params_correct"].get(addr, None)[1]
-        sheet.write(cur_row, int(col_no), col_val, cell_formats[col_no+1] if col_no in range(0, 7) else cell_formats[0])
+    if need_correct is not None:
+        if not isinstance(need_correct[0], list):
+            need_correct = [need_correct]
+        for patch in need_correct:
+            col_no = patch[0]
+            col_val = patch[1]
+            sheet.write(cur_row, int(col_no), col_val,\
+                cell_formats[col_no+1] if col_no in range(0, 7) else cell_formats[0])
 
     cur_row = cur_row + 1
     last_printed_address = ParameterData['Address']
