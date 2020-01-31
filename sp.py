@@ -32,7 +32,6 @@ sheet = Worksheet
 cell_formats = {}
 
 cur_row = 0
-group_has_elec_values = False
 group_has_group_values = False
 stash = []
 inserted_stash = []
@@ -209,7 +208,11 @@ def process_all():
             time.sleep(5)
             sys.exit()
 
-    extract_parameters_to_rearrange();
+    # first cycle for each parameters, check 'params_to_rearrange'.
+    # this section allows you to move some settings by placing them after the specified address.
+    # it also allows you to add a new setpoint that does not exist in .xrio
+    # TODO: Monday
+    extract_parameters_to_rearrange()
 
     # paste overview info about terminal
     # MLFB code
@@ -466,7 +469,7 @@ def extract_parameter_values(Parameter):
             Dimension = ''
 
         # convert to primary if needed
-        if (primary == False) | (ParameterAddr in config_tree['params_without_convert']):
+        if (primary == False) | (ParameterAddr in config_tree['non_electrical']):
             # if value is "oo" - do not display dimension
             # call ConvertToPrimary for calc 'group_has_elec_values' variable
             convert_to_primary(ParameterAddr, ParameterValueA, Dimension, extract_parameter_precision(ParameterAddr))
@@ -574,8 +577,7 @@ def print_parameter_data(ParameterData, highlight=False):
         for patch in need_correct:
             col_no = patch[0]
             col_val = patch[1]
-            sheet.write(cur_row, int(col_no), col_val,\
-                cell_formats[col_no+1] if col_no in range(0, 7) else cell_formats[0])
+            sheet.write(cur_row, int(col_no), col_val, cell_formats[col_no+1] if col_no in range(0, 7) else cell_formats[0])
 
     cur_row = cur_row + 1
     last_printed_address = ParameterData['Address']
@@ -698,7 +700,6 @@ def process_setting_page(setting_page):
     parameters = setting_page.findall("Parameter")
 
     page_have_elec_param = False
-    page_have_param_to_convert = False
     page_have_groups = False
 
     for parameter in parameters:
@@ -708,14 +709,12 @@ def process_setting_page(setting_page):
                 dimension = dimension.attrib.get('Dimension')
             else:
                 dimension = ''
-            if dimension in ["А", "В", "Ом", "Ом / км", "ВА", "мкФ/км"]:
+            if (dimension in ["А", "В", "Ом", "Ом / км", "ВА", "мкФ/км"]) & (not parameter.attrib['DAdr'] in config_tree['non_electrical']):
                 page_have_elec_param = True
-                if not parameter.attrib['DAdr'] in config_tree['params_without_convert']:
-                    page_have_param_to_convert = True
             if parameter.find(r"Value[@SettingGroup='A']") is not None:
                 page_have_groups = True
 
-    if page_have_elec_param & page_have_param_to_convert:
+    if page_have_elec_param:
         if primary:
             print_h3('(первичные величины)', page_have_groups)
         else:

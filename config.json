@@ -5,7 +5,7 @@
     "voltage_second" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0204\"]/Value/text()",
     "current_primary" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0205\"]/Value/text()",
     "current_second" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0206\"]/Comment[@Number=//Parameter[@DAdr=\"0206\"]/Value/text()]/@Name",
-    "params_without_convert" : ["0203", "0204", "0205", "0206", "1103", "1104"],
+    "non_electrical" : ["0203", "0204", "0205", "0206", "1103", "1104"],
     "params_to_rearrange" : {
       "1211" : "1208",
 	  "1304" : "1302",
@@ -56,7 +56,7 @@
     "voltage_second" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0204\"]/Value/text()",
     "current_primary" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0205\"]/Value/text()",
     "current_second" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0206\"]/Comment[@Number=//Parameter[@DAdr=\"0206\"]/Value/text()]/@Name",
-    "params_without_convert" : ["0203", "0204", "0205", "0206", "1103", "1104"],
+    "non_electrical" : ["0203", "0204", "0205", "0206", "1103", "1104"],
     "params_to_rearrange" : {
       "1511" : "1508",
       "1604" : "1602",
@@ -111,7 +111,7 @@
     "voltage_second" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0203\"]/Value/text()",
     "current_primary" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0204\"]/Value/text()",
     "current_second" : ".//FunctionGroup/SettingPage/Parameter[@DAdr=\"0205\"]/Comment[@Number=//Parameter[@DAdr=\"0205\"]/Value/text()]/@Name",
-    "params_without_convert" : ["0202", "0203", "0204", "0205", "0207", "0208", "0217", "0218", "1101", "1102"],
+    "non_electrical" : ["0202", "0203", "0204", "0205", "0207", "0208", "0217", "0218", "1101", "1102"],
     "params_to_rearrange" : {
     },
     "params_correct" : {
@@ -122,9 +122,8 @@
   },
   "6MD664" : {
     "convert_to_primary" : "false",
-    "params_without_convert" : ["0203", "0204", "0205", "0206"],
+    "non_electrical" : ["0203", "0204", "0205", "0206"],
     "params_to_rearrange" : {
-      "0104" : "0103"
     },
     "params_correct" : {
 	  "0x200002BB698E" : [1, "Разн φ СинхрВкл"],
@@ -136,8 +135,7 @@
 	  "0x20000411698E" : [1, "Разн φ СинхрВкл"],
 	  "0x20000412698E" : [1, "Разн φ СинхрВкл"],
 	  "3402"           : [1, "ВЫКЛ, Контроль"],
-	  "3459"           : [1, "1.АПВ:ВЫКЛ,гот"],
-      "0103"           : [[1, "ТЕСТ"],[2, "222"]]
+	  "3459"           : [1, "1.АПВ:ВЫКЛ,гот"]
     },
     "titles_correct" : {
     }
@@ -148,8 +146,9 @@
     "voltage_second" : "",
     "current_primary" : "",
     "current_second" : "",
-    "params_without_convert" : ["0370", "0371", "0372", "0373", "0374", "0512", "0522", "0532", "0311", "0312",
-      "0321", "0322", "0331", "0332", "0512", "0522", "0532"],
+    "non_electrical" : ["0311", "0312", "0321", "0322", "0331", "0332", "0370", "0371", "0372", "0373", "0374", "0381", "0382", "0383",
+      "0384", "0385", "0512", "0522", "0532", "0562", "0563", "0571", "0572", "0573", "0581", "0582", "0583", "0591", "0592", "0593",
+      "0601", "0602"],
     "params_to_rearrange" : {
     },
     "params_correct" : {
