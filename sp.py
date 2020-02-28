@@ -17,7 +17,7 @@ from xlsxwriter.worksheet import Worksheet
 import winreg
 
 __author__ = 'Wyfinger'
-__version__ = '2020-02-20'
+__version__ = '2020-02-28'
 
 xriofile = ""
 xmlfile = ""
@@ -288,7 +288,33 @@ def print_parameter_data(parameter_data, highlight=False):
 
     global cur_row
 
-    # write data from config_tree then correct it by "params_correct" config_tree section
+    #'Address': address,
+    #'Name': extract_parameter_name(address),
+    #'Range': extract_parameter_range(parameter)[0],
+    #'Values': extract_parameter_values(parameter),
+    #'Description': parameter.attrib['Name'],
+
+    # correct fields from 'params_correct' section of config
+    addr = parameter_data['Address']
+    need_correct = config_tree["params_correct"].get(addr, None)
+    if need_correct is not None:
+        if not isinstance(need_correct[0], list):
+            need_correct = [need_correct]
+        for patch in need_correct:
+            col_no = patch[0]
+            col_val = patch[1]
+            if col_no == 0:
+                parameter_data['Address'] = col_val
+            elif col_no == 1:
+                parameter_data['Name'] = col_val
+            elif col_no == 2:
+                parameter_data['Range'] = col_val
+            elif (col_no >= 3) & (col_no <= 6):
+                parameter_data['Values'][col_no-3] = col_val
+            elif col_no == 7:
+                parameter_data['Description'] = col_val
+
+    # write data from config_tree then correct it by 'params_correct' config_tree section
     if len(parameter_data['Address']) > 6:
         sheet.write(cur_row, 0, parameter_data['Address'], cell_formats[15])
     elif highlight:
@@ -341,7 +367,8 @@ def print_parameter_data(parameter_data, highlight=False):
         for patch in need_correct:
             col_no = patch[0]
             col_val = patch[1]
-            sheet.write(cur_row, int(col_no), col_val, cell_formats[col_no + 1] if col_no in range(0, 7) else cell_formats[0])
+            if col_no > 7:
+                sheet.write(cur_row, int(col_no), col_val, cell_formats[col_no + 1] if col_no in range(0, 7) else cell_formats[0])
 
     cur_row = cur_row + 1
 
@@ -621,14 +648,38 @@ def extract_parameters_to_rearrange():
                 'ParameterData': parameter_data
             }
 
-    # TODO: Add parameters from the 'params_correct' section with column 0, this is for
-    #  special addresses that are in Digsi, but which are not in the .xml and .xrio files,
-    #  for example 7137 in 7SJ.
+    # some addresses is absent in .xml and .xrio files, its exist in Digsi, we
+    # must add its manualy. this addresses stored in config.json in 'params_to_rearrange'
+    # section for set insert position address and in 'params_correct' section for store
+    # parameter data.
+    # in 'params_correct' for this addresses column 0 must be contain self address.
+    for p in config_tree['params_to_rearrange']:
+        stolen_flag = False
+        param = config_tree['params_correct'].get(p,0)
+        if isinstance(param, list):
+            for l in param:
+                col_no = l[0]
+                col_val = l[1]
+                if (col_no == 0) & (col_val == p):
+                    stolen_flag = True
+                    break
+            if stolen_flag:
+                stash[p] = {
+                    'PopAfter': config_tree['params_to_rearrange'].get(p,1),
+                    'ParameterData': {
+                        'Address': p,
+                        'Name': '* stolen *',
+                        'Range': '* stolen *',
+                         'Values': ['* stolen *', '* stolen *', '* stolen *', '* stolen *'],
+                        'Description': '* stolen *',
+                    }
+                }
 
-    # check stash params for PopAfter exists in config, if in confid have not param with
+    # check stash params for PopAfter exists in config, if in config have not param with
     # address from 'PopAfter' - delete this param from stash
+
     for s in stash.copy():
-        if stash[s]['PopAfter'] not in params_addrs:
+        if (stash[s]['PopAfter'] not in params_addrs) and (stash[s]['PopAfter'] not in stash):
             stash.pop(s)
 
     return
@@ -715,9 +766,11 @@ def insert_parameter(parameter_data, rearrange=False):
 
     # if after current param we need to insert stashed param - do it!
     for s in stash.copy():
-        if stash[s]['PopAfter'] == parameter_data['Address']:
-            insert_parameter(stash[s]['ParameterData'], True)
-            stash.pop(s)
+        if s in stash:
+            if stash[s]['PopAfter'] == parameter_data['Address']:
+                insert_parameter(stash[s]['ParameterData'], True)
+                if s in stash:
+                    stash.pop(s)
 
     return
 
